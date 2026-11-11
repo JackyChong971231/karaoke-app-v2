@@ -1,0 +1,5 @@
+node_modules/
+dist/
+# Generated from server/src/karaoke/contract.py by `npm run gen:wire`. Never commit: it is rebuilt before dev/build/typecheck.
+src/wire/schema.json
+src/wire/generated.ts

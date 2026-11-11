@@ -1,0 +1,90 @@
+[project]
+name = "karaoke"
+version = "2.0.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "starlette", "uvicorn[standard]", "pydantic>=2.8",
+  "ytmusicapi==1.12.3",
+  "torch", "torchaudio", "demucs", "stable-ts", "opencc-python-reimplemented", "soundfile",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/karaoke"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[project.scripts]
+karaoke = "karaoke.__main__:main"
+
+[dependency-groups]
+dev = ["pytest", "pytest-asyncio", "hypothesis", "mypy", "import-linter"]
+
+# ---------------------------------------------------------------------------
+# Module boundaries, enforced by `lint-imports` in `just check`.
+# An agent taking the shortest import path gets a failing check, not a new coupling.
+# ---------------------------------------------------------------------------
+[tool.importlinter]
+root_package = "karaoke"
+include_external_packages = true   # lets party-is-pure forbid pydantic, asyncio, os, random, time
+
+[[tool.importlinter.contracts]]
+name = "layers"
+type = "layers"
+layers = [
+  "karaoke.__main__",
+  "karaoke.harness",
+  "karaoke.shell",
+  "karaoke.importer",
+  "karaoke.songs",
+  "karaoke.party | karaoke.contract",   # independent siblings: neither imports the other
+  "karaoke.vocab | karaoke.core",
+]
+
+[[tool.importlinter.contracts]]
+name = "party-is-pure"
+type = "forbidden"
+source_modules = ["karaoke.party"]
+forbidden_modules = [
+  "karaoke.contract", "karaoke.shell", "karaoke.songs", "karaoke.importer",
+  "pydantic", "starlette", "asyncio", "os", "pathlib", "random", "time", "datetime", "uuid",
+]
+
+[[tool.importlinter.contracts]]
+name = "party-internals-private"
+type = "forbidden"
+source_modules = ["karaoke.shell", "karaoke.songs", "karaoke.importer", "karaoke.harness", "karaoke.__main__"]
+forbidden_modules = ["karaoke.party.fairness", "karaoke.party.reduce", "karaoke.party.projections"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "prepare-internals-private"
+type = "forbidden"
+source_modules = ["karaoke.shell", "karaoke.importer", "karaoke.songs.catalog", "karaoke.songs.library"]
+forbidden_modules = [
+  "karaoke.songs.prepare._pipeline", "karaoke.songs.prepare._download",
+  "karaoke.songs.prepare._accelerator", "karaoke.songs.prepare._lyrics",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "torch-only-in-accelerator"
+type = "forbidden"
+source_modules = ["karaoke.party", "karaoke.shell", "karaoke.songs.catalog", "karaoke.songs.library", "karaoke.importer"]
+forbidden_modules = ["torch", "demucs", "stable_whisper"]
+
+[tool.mypy]
+strict = true
