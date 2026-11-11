@@ -1,0 +1,161 @@
+# Technical spec
+
+Status: Approved 2026-11-11. Built from prototype measurements. The user passed key change and word-by-word highlighting by ear and by eye on 2026-11-11.
+
+## Stack
+
+- **Server.** Python 3.12, managed with `uv`. Python is required because vocal separation and lyric alignment run on PyTorch.
+- **Web pages.** TypeScript, served by the same server. One page is the TV player and one page is the phone remote. Assumption: React with Vite, for a polished phone UI.
+- **Live updates.** One WebSocket per page. The server is the only owner of queue and playback state and pushes every change to every page.
+- **Download tool.** `yt-dlp` in its own `uv tool` environment, plus the Deno JavaScript runtime that `yt-dlp` needs for YouTube.
+
+## Architecture
+
+The server runs these modules. Each module owns one job and talks to the others through typed calls, never through shared files.
+
+| Module | Owns |
+| --- | --- |
+| `session` | The queue, the fairness order, singers, and the playback state. Saves itself on every change so a restart can offer to keep the queue. |
+| `catalog` | Search across the library and YouTube, and the canonical title and artist for each song. |
+| `prepare` | One job per queued song. It runs download, separation, and lyrics, in that order, and reports progress. |
+| `download` | Calls `yt-dlp`. Updates `yt-dlp` at startup and retries once after an update when a download fails. |
+| `separate` | Splits the audio into a backing track and a vocal track with Demucs `htdemucs`. |
+| `lyrics` | Finds the lyric text, converts Chinese to Traditional, and times every word against the vocal track. |
+| `library` | The song folders on disk and the search index. |
+| `importer` | Copies v1 songs into the library. |
+
+The TV player page owns audio playback. It reports its playback position to the server, and the server forwards it to the phones.
+
+## Data model
+
+```
+Song        id (YouTube video ID), title, artist_id, duration, language, lyrics_source
+Artist      id, names (every spelling, for example 陳奕迅 and Eason Chan)
+Singer      id (random ID stored on the phone), name, joined_at
+QueueEntry  id, song_id, singer_id, round, added_at
+Session     started_at, queue (ordered QueueEntry list), sung_count per singer, now_playing
+Prepared    song_id, state (queued, downloading, separating, aligning, ready, failed), progress, error
+Lyrics      lines, each with words, each with text, start, end, gap_before
+```
+
+`round` is computed once, when the entry is added: the singer's songs sung this session, plus their songs already queued, plus one. A new entry goes right after the last entry whose `(round, singer join order)` is smaller.
+
+## Song folder
+
+```
+library/
+  index.sqlite
+  <video id>/
+    song.json          title, artist, duration, language, source URL, lyrics source
+    video.mp4          at most 1080p, no audio track
+    instrumental.opus
+    vocals.opus
+    lyrics.json        word-timed lines
+```
+
+The folder name is the YouTube video ID, so it never collides, never needs cutting, and is safe in any file system. A song is in the library only when every file exists. A preparation writes into a temporary folder and renames it into place at the end, so a crash never leaves a half-finished song.
+
+Assumption: Opus audio at 160 kbit/s. It is about 5 MB per track instead of about 44 MB as WAV. Browsers decode Opus natively.
+
+## Play a song on the TV
+
+- The page loads the backing track and the vocal track into one four-channel audio buffer, so the two tracks can never drift apart.
+- The buffer plays through Signalsmith Stretch (`signalsmith-stretch` 1.3.2, MIT licence) for real-time key change. A key change from a phone takes effect at once, with no reprocessing.
+- The vocal slider sets the gain of the vocal channels after the key change.
+- The audio is the clock. The video and the lyrics follow the audible position, which is `inputTime - (stretch latency + baseLatency + outputLatency)`. The raw `inputTime` runs ahead of the speakers. The prototype measured a 0.115 s stretch lead and 0.05 s of browser output latency, and the user had to set the lyrics 0.2 s later until the clock subtracted both.
+- After a seek, the page keeps the target position itself until the stretch node reports a new time. `inputTime` updates by message, so reading it right after a seek returns the old position.
+- The AV offset setting moves the video and the lyrics earlier by the TV's display lag, so picture and sound reach the room together.
+
+Two library traps found in the prototype:
+
+- Create the stretch node with `numberOfInputs: 1`, even though nothing connects to the input. With `numberOfInputs: 0`, the node crashes the first time it processes while paused.
+- Call `setUpdateInterval` to receive playback position updates.
+
+## Show lyrics
+
+- Two slots. Line `i` always uses slot `i % 2`. While line `i` is sung, the other slot already shows line `i + 1`.
+- Each word fills with blue from left to right over its own start and end time.
+- A line too wide for one row is split at preparation time, at the word gap nearest its middle, and each half keeps its word times. As a last guard, the player shrinks the font of a line that still does not fit. A line never wraps.
+
+## Prepare lyrics
+
+1. Look up the lyric text on LRCLIB by title and artist. Prefer a result in the song's own script, for example Hangul over romanized Korean.
+2. Convert Chinese to Traditional with OpenCC `s2hk`.
+3. Split Chinese and Japanese text into single characters, keeping the original spaces as `gap_before`.
+4. Time every word against the vocal track with `stable-ts` and the Whisper `small` model. Use language `zh` for Cantonese.
+5. Widen each line's first word. The aligner places the first word's start too late, so its median length was 0.15 s to 0.22 s against about 0.4 s for other words, and some first words had zero length. On screen the first two words then lit up at once. When a first word is shorter than half the line's median word length, move its start earlier so it gets the median length, but never before the previous line ends. This changed 18 to 26 lines per song.
+6. If LRCLIB has no lyrics, transcribe the vocal track instead and mark the song's lyrics as possibly wrong.
+
+## Measured results
+
+All numbers come from the prototype on the target laptop (Core Ultra 7 155H, RTX 4060 Laptop GPU with 8 GB, 15.5 GB RAM).
+
+### Lyric timing
+
+Line start error against LRCLIB line times, after removing one constant offset per song. LRCLIB times are made for the album audio, so they are a reference, not ground truth.
+
+| Song | Language | Whisper `large-v3` within 0.3 s | Whisper `small` within 0.3 s | `small` median error |
+| --- | --- | --- | --- | --- |
+| 說謊者 | Cantonese | 61% | 89% | 0.06 s |
+| 陀飛輪 | Cantonese | 50% | 89% | 0.14 s |
+| 小幸運 | Mandarin | 27% | 84% | 0.06 s |
+| アイドル | Japanese | 84% | 86% | 0.10 s |
+| 눈,코,입 | Korean | 57% | 90% | 0.08 s |
+| Complicated | English | 54% | 51% | 0.27 s |
+
+- `small` beats `large-v3` on five songs and ties on English. Running `large-v3` with language `zh` did not close the gap, so the model, not the language code, explains it.
+- The music video often has an intro that the album lacks. Offsets of +4 s to +24 s were measured. Alignment against the video's own audio removes the problem.
+- English stays at about 50% against LRCLIB, but the user found its highlighting correct when watching. The LRCLIB reference is the likely weak point for that song.
+
+### Preparation time per song
+
+| Step | With the RTX 4060 | Processor only |
+| --- | --- | --- |
+| Download audio | 9 s | 9 s |
+| Download video, at most 1080p | 9 s, in parallel with the audio | 9 s, in parallel with the audio |
+| Separate vocals, 4 min 13 s song | 12 s, 3 runs, spread under 0.5 s | 85 s and 168 s, 2 runs |
+| Align lyrics | 1.4 s to 3.4 s | 16 s to 19 s |
+| **Total** | **about 25 s** | **about 2 to 3.5 minutes** |
+
+The processor-only separation time varied by 2x between runs. The limiter is not yet identified. Power and thermal limits are the first suspects.
+
+## Find songs and videos
+
+The `catalog` module uses `ytmusicapi` (1.12.3 tested) against YouTube Music, region `HK`.
+
+- **Song identity comes from song results.** A song result (`MUSIC_VIDEO_TYPE_ATV`) has a clean title and an artist with a stable channel ID. The top song result was the right song for all 7 direct searches, including searches by artist name only.
+- **Artists group by channel ID.** The same ID comes back in every language, for example `UC2rCynaFhWz7MeRoqJLvcow` for both 陳奕迅 and Eason Chan. The library stores every name it sees for that ID, so either name finds the artist.
+- **Fetch each result in two languages.** `zh_TW` gives native Chinese names and clean Chinese titles, but it also translates Western songs, for example "Complicated" to 超複雜 and Avril Lavigne to 艾薇兒. `en` keeps Western titles. Show the `en` title when it has no CJK characters and the `zh_TW` title does. Otherwise show the `zh_TW` title. Store both for search.
+- **Filtered search breaks in `zh_TW`.** `search(filter="songs")` returns nothing with `language="zh_TW"`. Search unfiltered and filter by `resultType` instead.
+- **The song-to-video link is not available.** The `counterpart` field was empty for all 10 tested songs without sign-in, so the app finds the music video by search.
+
+### Pick the music video
+
+Search videos for `artist + title`. Accept a result only when all three hold:
+
+1. `videoType` is `MUSIC_VIDEO_TYPE_OMV`, the official music video.
+2. The video title contains the song title before any edition tag, such as "(Live)" or "AIR (Day Version)".
+3. The video's artist ID is the song's artist ID.
+
+On the 20 songs v1 played most, this strict rule picked 9 official videos and no wrong ones. Loosening rule 3 to accept a label upload that names the singer raised that to 13, but 2 of the 13 were wrong: a parody medley and a piano cover. The strict rule stays. When it finds nothing, the phone shows the top video results with thumbnails and the singer picks one.
+
+The importer applies the same rule to each v1 song. A found official music video replaces the v1 video, and the song is prepared again from it, which takes about 25 s per song on the RTX 4060.
+
+Matching a messy v1 video title to a song was wrong 2 times in 20. For example, 小幸運 matched another artist's "A Little Happiness". So the importer never trusts its own match. It shows each match for the user to confirm.
+
+## External integrations
+
+| Integration | What breaks | How the app notices | What the user sees |
+| --- | --- | --- | --- |
+| YouTube through `yt-dlp` | YouTube changes its player | A download fails | The app updates `yt-dlp` and retries once. If that fails, the song shows "Can't download" on the phone. |
+| LRCLIB | No lyrics for a song, or the site is down | Empty result or a network error | The song plays with transcribed lyrics, marked as possibly wrong. |
+| YouTube Music search through `ytmusicapi` | YouTube Music changes its page format | A search raises an error or returns no song results for a common query | Search on the phone shows library results only, with a note that online search is unavailable. |
+
+## Verification
+
+- Unit tests cover the fairness order, including both examples in the product spec.
+- A project verification skill, made with `/pstack:create-verification-skill`, drives the TV page and a phone page in a real browser with Playwright. The prototype proved this works on the laptop with Microsoft Edge.
+
+## Open questions
+
+None.

@@ -1,0 +1,19 @@
+# Media and generated song data
+*.wav
+*.mp3
+*.m4a
+*.mp4
+*.webm
+/data/
+/cache/
+
+# Logs and local state
+*.log
+.env
+.env.*
+
+# OS and editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
