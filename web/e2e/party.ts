@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { openSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { networkInterfaces, tmpdir } from "node:os";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { test as base, expect, type Browser, type Page } from "@playwright/test";
@@ -28,6 +28,14 @@ function freePort(): Promise<number> {
       srv.close(() => (typeof address === "object" && address !== null ? done(address.port) : fail(new Error("no port"))));
     });
   });
+}
+
+/** Real phones reach the laptop by its LAN address over plain http, which is not a secure context
+ * (no crypto.randomUUID, clipboard, and similar). localhost is secure, so phones must not use it. */
+function lanAddress(): string {
+  const v4 = Object.values(networkInterfaces()).flat().find((a) => a?.family === "IPv4" && !a.internal);
+  if (v4 === undefined) throw new Error("no LAN IPv4 address: phone tests need one to load the page insecurely");
+  return v4.address;
 }
 
 function uvCommand(): string {
@@ -71,6 +79,7 @@ export class Party {
   constructor(
     readonly url: string,
     private readonly browser: Browser,
+    readonly phoneUrl = url.replace("localhost", lanAddress()),
   ) {}
 
   async tv(): Promise<Page> {
@@ -89,7 +98,8 @@ export class Party {
       hasTouch: true,
     });
     const page = await ctx.newPage();
-    await page.goto(`${this.url}/`);
+    await page.goto(`${this.phoneUrl}/`);
+    expect(await page.evaluate(() => window.isSecureContext), "phone page must load like a real phone").toBe(false);
     await page.getByTestId("name-input").fill(name);
     await page.getByTestId("name-submit").click();
     await expect(page.getByTestId("tv-status")).toBeVisible();
