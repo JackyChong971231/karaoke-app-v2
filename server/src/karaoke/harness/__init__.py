@@ -4,45 +4,112 @@ Fakes sit at the two places the app touches the internet or the GPU, and nowhere
 the real reducer, real shell loop, real Preparer scheduler, real staging and install, real HTTP and WebSocket,
 and the real built TV and phone pages:
 
-    FakeYouTubeMusic   fixture search results (fixtures/catalog/*.json), incl. a song with NO official video
-                       (drives the pick-a-video flow) and a query that raises (drives 'online search unavailable').
-    FakeStages         copies fixture media (10 s tone stems, 10 s color-bar video, lyrics with known word times)
-                       into staging. Each stage waits on a per-song gate the harness opens via /test, or a
-                       configured delay, and can be told to fail, to fail once (update+retry path), or to crash
-                       the 'process' mid-stage (resume-from-marker path).
+    FakeYouTubeMusic   fixture search results (fakes.CATALOG), incl. a song with NO official video
+                       ("No Video Song", drives the pick-a-video flow) and a query that raises
+                       (any query containing "explode", drives 'online search unavailable').
+    FakeStages         copies real ffmpeg-generated fixture media (10 s tone stems, 10 s solid-colour video,
+                       lyrics with known word times) into staging. Each stage takes --fake-delay seconds, or
+                       waits for /test/prep/<song>/advance when the song is held, and can be told to fail.
+    seed_library       three library songs at boot, so library search, ready-at-once queueing, and filler work.
 
 Test-only routes (mounted only here; the real server has no /test prefix at all):
-    GET  /test/state                  PartyState as JSON (dataclasses.asdict) + Preparer.board() + journal path
-    POST /test/prep/{song}/advance    open the gate for the next stage
+    GET  /test/state                  party state, preparation board, fake stage calls, journal path (JSON)
+    POST /test/prep/{song}/hold       stages of this song wait for /advance
+    POST /test/prep/{song}/advance    let the held song's current stage finish
+    POST /test/prep/{song}/release    stop holding; remaining stages run with the normal delay
     POST /test/prep/{song}/fail       ?mode=once|always|crash
-    POST /test/restart                persist, tear down, and boot again in-process (restart keep-or-new tests)
-    POST /test/input                  submit a raw party Input (JSON), for states hard to reach through the UI
+    POST /test/input                  submit a raw party Input (codec JSON), for states hard to reach through the UI
+    GET  /test/thumb/{video}.svg      solid-colour thumbnail, so the video grid renders offline
 
-Browser-side probes (present in every build, read-only, cheap):
-    window.__karaokeTv.probe()  -> { playId, audible, display, videoTime, slots: [{line, text, fills: number[]}],
-                                     paused, semitones, vocalGain, loadedSongId }
-    window.__karaokePhone.probe() -> { rev, pickFlow, pendingRequests }
-
-Harness shape (the /pstack:create-verification-skill output will wrap it):
-    Playwright + Microsoft Edge (channel 'msedge', proven on this laptop), autoplay flag on.
-    One TV page + N phone contexts (each a fresh localStorage = a fresh singer).
-    Assertions read probes and /test/state; actions use the real phone UI via data-testid selectors.
-
-Scenarios the harness ships with (one per product rule that crosses the wire):
-    fairness-example-1/2  queue A B B B B A C via three phones, assert queue order on a 4th phone
-    unready-skip          queue X (gate closed) then Y (ready): Y plays, X stays at front, opens gate, X next
-    filler                empty queue -> filler plays; queue a song mid-filler -> filler continues; skip -> song starts
-    double-skip           two phones tap skip on the same playId -> exactly one song skipped
-    restart-keep/new      queue 3, /test/restart, prompt on TV + 2 phones, first answer wins, second gets already_resolved
-    pick-video            search a song with no official video -> candidate grid -> tap -> queued
-    lyrics-clock          known fixture word times: at audible t the slot fills match; after pause/resume no backstep
-    tv-reload             reload TV mid-song -> resumes at the reported position (+-0.5 s), same playId
-    download-retry        fail=once -> one 'update' call, then ready; fail=always -> 'Can't download' on phones
-    crash-resume          crash during 'separating' -> retry resumes at separate (download not repeated)
+Restart scenarios restart the process itself with the same --data folder: that is the real boot path.
 """
 
 from __future__ import annotations
 
+import dataclasses
+import json
+from dataclasses import dataclass
+from pathlib import Path
+from typing import get_args
 
-def fake_world(fixtures_dir) -> object:
-    raise NotImplementedError
+from starlette.requests import Request
+from starlette.responses import JSONResponse, PlainTextResponse, Response
+from starlette.routing import BaseRoute, Route
+
+from karaoke.core import SongId
+from karaoke.harness.fakes import FailMode, FakeStages, FakeYouTubeMusic, seed_library
+from karaoke.harness.media import COLOURS, ensure_media
+from karaoke.party import Input
+from karaoke.shell.codec import decode, encode
+from karaoke.shell.journal import Journal
+from karaoke.shell.loop import PartyLoop
+from karaoke.songs.library import Library
+from karaoke.songs.prepare import Preparer
+
+
+@dataclass(frozen=True, slots=True)
+class FakeWorld:
+    yt: FakeYouTubeMusic
+    stages: FakeStages
+
+
+def fake_world(data_dir: Path, library: Library, delay_s: float) -> FakeWorld:
+    media = ensure_media(data_dir / "fixtures")
+    seed_library(library, media)
+    return FakeWorld(FakeYouTubeMusic(), FakeStages(media, delay_s))
+
+
+def harness_routes(world: FakeWorld, loop: PartyLoop, preparer: Preparer, journal: Journal) -> list[BaseRoute]:
+    stages = world.stages
+
+    async def state(request: Request) -> Response:
+        board = {song: dataclasses.asdict(status) for song, status in preparer.board().items()}
+        views = loop.views()
+        return JSONResponse({
+            "party": encode(loop.state),
+            "board": board,
+            "stages": stages.describe(),
+            "journal": str(journal.path),
+            "views": [v.model_dump(by_alias=True) for v in views] if views else None,
+        })
+
+    async def prep(request: Request) -> Response:
+        song = SongId(request.path_params["song"])
+        match request.path_params["action"]:
+            case "hold":
+                stages.hold(song)
+            case "advance":
+                stages.advance(song)
+            case "release":
+                stages.release(song)
+            case "fail":
+                mode = request.query_params.get("mode", "always")
+                if mode not in get_args(FailMode):
+                    return PlainTextResponse(f"mode must be one of {get_args(FailMode)}", status_code=400)
+                stages.fail(song, mode)  # type: ignore[arg-type]
+            case other:
+                return PlainTextResponse(f"unknown action {other}", status_code=404)
+        return JSONResponse(stages.describe())
+
+    async def submit_input(request: Request) -> Response:
+        inp: Input = decode(json.loads(await request.body()))
+        outcome = await loop.submit(inp)
+        return JSONResponse(encode(outcome))
+
+    async def thumbnail(request: Request) -> Response:
+        video = request.path_params["video"]
+        colour = COLOURS[sum(map(ord, video)) % len(COLOURS)].replace("0x", "#")
+        svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180">'
+               f'<rect width="320" height="180" fill="{colour}"/>'
+               f'<text x="16" y="100" font-size="20" fill="#fff" font-family="sans-serif">{video}</text></svg>')
+        return Response(svg, media_type="image/svg+xml")
+
+    return [
+        Route("/test/state", state),
+        Route("/test/prep/{song}/{action}", prep, methods=["POST"]),
+        Route("/test/input", submit_input, methods=["POST"]),
+        Route("/test/thumb/{video}.svg", thumbnail),
+    ]
+
+
+__all__ = ["FakeWorld", "fake_world", "harness_routes"]

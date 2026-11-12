@@ -26,6 +26,7 @@ explicit = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_default_fixture_loop_scope = "function"
 
 [project.scripts]
 karaoke = "karaoke.__main__:main"

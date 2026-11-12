@@ -339,8 +339,16 @@ class SupersededMsg(Wire):
     kind: Literal["superseded"]
 
 
+class ServerHello(Wire):
+    """First message on every connection. A page whose generated PROTOCOL differs reloads itself, so a page
+    built against an older contract never talks to a newer server."""
+
+    kind: Literal["serverHello"]
+    protocol: str
+
+
 ServerMessage = Annotated[
-    ReplyMsg | PhoneViewMsg | TvViewMsg | ClockMsg | SupersededMsg, Field(discriminator="kind")
+    ServerHello | ReplyMsg | PhoneViewMsg | TvViewMsg | ClockMsg | SupersededMsg, Field(discriminator="kind")
 ]
 
 
@@ -371,16 +379,19 @@ class OnlineDown(Wire):
     kind: Literal["unavailable"]
 
 
+OnlineResult = Annotated[OnlineOk | OnlineDown, Field(discriminator="kind")]
+
+
 class SearchResponse(Wire):
     library: list[LibrarySongHit]
-    online: Annotated[OnlineOk | OnlineDown, Field(discriminator="kind")]
+    online: OnlineResult
 
 
 class ArtistResponse(Wire):
     artist: str
     artist_id: str
     library: list[LibrarySongHit]
-    online: Annotated[OnlineOk | OnlineDown, Field(discriminator="kind")]
+    online: OnlineResult
 
 
 class VideoCandidateView(Wire):
@@ -411,7 +422,7 @@ class ImportItemView(Wire):
     v1_title: str
     v1_play_count: int
     proposed: SongView | None
-    video: Annotated[OfficialFound | ChooseVideoResponse, Field(discriminator="kind")] | None
+    video: VideoChoiceResponse | None
     reuse_v1_video: bool
     decision: ImportDecision
     imported: bool

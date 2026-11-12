@@ -10,64 +10,83 @@ reducer with nothing to remember about jobs.
 
 States per song (the board):
 
-    waiting --> downloading --> separating --> aligning --> ready
-       ^            |               |              |
-       |            +---------------+--------------+--> failed(reason)
+    waiting --> downloading --> waiting --> separating --> waiting --> aligning --> ready
+       ^                 (for the accelerator)        |                    |
+       |            +---------------------------------+--------------------+--> failed(reason)
        +-- (retry: song leaves all demand, then is demanded again)
 
-  'waiting' = demanded but not started, or started but waiting for the accelerator.
-  'ready' is reported to the party as SongReady; it is also reported immediately for songs already on disk.
+The board holds only songs that are demanded or still running. 'ready' is reported to the party as
+SongReady; it is also reported immediately for songs already on disk.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+import asyncio
+import errno
+import logging
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
-from typing import Literal
+from types import MappingProxyType
 
-from karaoke.core import SongId, SongMeta
+from karaoke.contract import LyricsDoc
+from karaoke.core import SongId
 from karaoke.songs.catalog import Catalog
-from karaoke.songs.library import Library
+from karaoke.songs.library import Library, SongRecord
+from karaoke.songs.prepare._model import (
+    Device, FromV1Files, FromYouTube, Lane, PrepFailed, PrepRequest, PrepStatus, Source, Stages,
+)
+from karaoke.songs.prepare._pipeline import RealStages, Resource, prepare_song
 from karaoke.vocab import FailReason, PrepStage
 
-Lane = Literal["party", "import"]
-"""Party demand always goes first. Import demand fills idle capacity (the ~468-song second import
-can run during a party without ever delaying a queued song)."""
+__all__ = [
+    "Device", "FromV1Files", "FromYouTube", "Lane", "PrepFailed", "PrepRequest", "PrepStatus", "Preparer",
+    "RealStages", "Source", "Stages",
+]
 
-Device = Literal["cuda", "cpu"]
+log = logging.getLogger(__name__)
 
-
-@dataclass(frozen=True, slots=True)
-class FromYouTube:
-    pass
-
-
-@dataclass(frozen=True, slots=True)
-class FromV1Files:
-    """Importer reuse: v1 video + v1 separated stems are converted, not re-downloaded or re-separated.
-    Lyrics are always redone."""
-
-    video: Path
-    instrumental: Path
-    vocals: Path
+LANES: tuple[Lane, ...] = ("party", "import")
+DOWNLOADS = 2
+BOARD_HZ = 2.0
+Rank = tuple[int, int]
+_UNDEMANDED: Rank = (len(LANES), 0)
 
 
-Source = FromYouTube | FromV1Files
+class _Dropped(Exception):
+    """The song left all demand before its download started."""
 
 
-@dataclass(frozen=True, slots=True)
-class PrepRequest:
-    song: SongMeta
-    source: Source = FromYouTube()
+class _Gate:
+    """Capacity-limited admission in priority order. Priority is read when a slot frees, so a song moved
+    to 'play next' jumps the line. `rank` returning None turns a waiter away."""
 
+    def __init__(self, capacity: int, rank: Callable[[SongId], Rank | None]) -> None:
+        self._capacity = capacity
+        self._rank = rank
+        self._busy = 0
+        self._waiting: dict[SongId, asyncio.Future[bool]] = {}
 
-@dataclass(frozen=True, slots=True)
-class PrepStatus:
-    stage: PrepStage
-    progress: float | None = None
-    """0..1 within the stage when known. Quantized to 5% so views don't churn."""
-    failure: FailReason | None = None
+    @asynccontextmanager
+    async def hold(self, song: SongId) -> AsyncIterator[None]:
+        fut: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
+        self._waiting[song] = fut
+        self.pump()
+        if not await fut:
+            raise _Dropped()
+        try:
+            yield
+        finally:
+            self._busy -= 1
+            self.pump()
+
+    def pump(self) -> None:
+        for song in [s for s in self._waiting if self._rank(s) is None]:
+            self._waiting.pop(song).set_result(False)
+        while self._busy < self._capacity and self._waiting:
+            song = min(self._waiting, key=lambda s: self._rank(s) or _UNDEMANDED)
+            self._waiting.pop(song).set_result(True)
+            self._busy += 1
 
 
 class Preparer:
@@ -75,65 +94,142 @@ class Preparer:
         self,
         library: Library,
         catalog: Catalog,
-        stages: "Stages",
+        stages: Stages,
         on_ready: Callable[[SongId], None],
         on_board_change: Callable[[], None],
     ) -> None:
         """`stages` is the real pipeline or the harness fake (same scheduler either way).
         Callbacks are invoked on the asyncio loop thread; the shell turns on_ready into a SongReady input."""
-        raise NotImplementedError
+        self._library = library
+        self._catalog = catalog
+        self._stages = stages
+        self._on_ready = on_ready
+        self._on_board_change = on_board_change
+        self._device: Device = "cpu"
+        self._demand: dict[Lane, tuple[PrepRequest, ...]] = {lane: () for lane in LANES}
+        self._ranks: dict[SongId, Rank] = {}
+        self._requests: dict[SongId, PrepRequest] = {}
+        self._board: dict[SongId, PrepStatus] = {}
+        self._jobs: dict[SongId, asyncio.Task[None]] = {}
+        self._downloads = _Gate(DOWNLOADS, self._ranks.get)
+        self._accelerator = _Gate(1, lambda s: self._ranks.get(s, _UNDEMANDED))
+        self._wake = asyncio.Event()
+        self._flush: asyncio.TimerHandle | None = None
+        self._last_flush = 0.0
 
     @property
     def device(self) -> Device:
         """Probed once at boot inside the accelerator process: cuda if torch.cuda.is_available(), else cpu.
         Shown on the phone settings screen. Nothing else in the app branches on it."""
-        raise NotImplementedError
+        return self._device
 
     def set_demand(self, lane: Lane, wanted: Sequence[PrepRequest]) -> None:
         """Replace this lane's demand with `wanted` (ordered, most urgent first). Idempotent.
-
-        TODO pseudocode:
-            for r in wanted:
-                if library.has(r.song.id): on_ready(r.song.id)   # every time: the party's `ready` is a set
-                elif r.song.id not in board: board[id] = waiting
-                elif board[id].stage == failed and id was absent from all demand last call: board[id] = waiting  # retry
-            songs absent from all lanes and still 'waiting' are dropped from the board.
-            A RUNNING job whose song left demand is NOT cancelled: it finishes and lands in the library.
-            (Cheap on GPU, and it keeps the code free of cancellation paths.)
-            wake the scheduler.
-        """
-        raise NotImplementedError
+        A running job whose song leaves demand is not cancelled: it finishes and lands in the library."""
+        self._demand[lane] = tuple(wanted)
+        self._ranks.clear()
+        self._requests.clear()
+        for li, ln in enumerate(LANES):
+            for i, r in enumerate(self._demand[ln]):
+                self._ranks.setdefault(r.song.id, (li, i))
+                self._requests.setdefault(r.song.id, r)
+        for song in self._ranks:
+            if self._library.has(song):
+                self._on_ready(song)
+            elif song not in self._board:
+                self._board[song] = PrepStatus("waiting")
+        for song in [s for s in self._board if s not in self._ranks and s not in self._jobs]:
+            del self._board[song]
+        self._downloads.pump()
+        self._accelerator.pump()
+        self._wake.set()
+        self._changed()
 
     def board(self) -> Mapping[SongId, PrepStatus]:
         """Read-only snapshot for views. Merged with party state at the read boundary (shell.views)."""
-        raise NotImplementedError
+        return MappingProxyType(dict(self._board))
 
     async def run(self) -> None:
-        """Scheduler loop, forever.
+        """Scheduler loop, forever. Every demanded song gets a job at once; the gates enforce two
+        downloads and one accelerator task at a time, in demand order."""
+        probe = asyncio.create_task(self._probe())
+        try:
+            while True:
+                await self._wake.wait()
+                self._wake.clear()
+                for song in sorted(self._ranks, key=self._ranks.__getitem__):
+                    status = self._board.get(song)
+                    if status and status.stage == "waiting" and song not in self._jobs:
+                        self._jobs[song] = asyncio.create_task(self._job(self._requests[song]), name=f"prepare {song}")
+        finally:
+            for job in self._jobs.values():
+                job.cancel()
+            probe.cancel()
+            await asyncio.gather(probe, *self._jobs.values(), return_exceptions=True)
+            await self._stages.stop()
 
-        TODO pseudocode (capacity and priority):
-            priority(song) = (lane rank, index in that lane's demand)      # recomputed at every pick
-            - up to 2 downloads at once (network-bound), highest priority first
-            - ONE accelerator task at a time (separate or align), highest priority among songs whose
-              previous stage is done. GPU memory (8 GB) and CPU time both argue for serial.
-            - each job = _pipeline.prepare(request, staging, stages); progress -> board -> on_board_change
-              (throttled to 2 Hz total)
-            - on success: library.install(...) ; board[id] = ready ; on_ready(id)
-            - on failure: board[id] = failed(reason)
-        """
-        raise NotImplementedError
+    async def _probe(self) -> None:
+        self._device = await self._stages.start()
+        self._changed()
 
+    async def _job(self, request: PrepRequest) -> None:
+        song = request.song.id
+        staging = self._library.staging_dir(song)
+        try:
+            await prepare_song(request.song, request.source, staging, self._stages,
+                               lambda stage, p: self._report(song, stage, p), self._slot)
+            record = await self._record(request, staging)
+            await asyncio.to_thread(self._library.install, song, record)
+            self._board[song] = PrepStatus("ready", 1.0)
+            self._on_ready(song)
+        except _Dropped:
+            self._board.pop(song, None)
+            if not any(staging.iterdir()):
+                staging.rmdir()
+        except PrepFailed as e:
+            log.warning("preparation of %s failed: %s", song, e)
+            self._fail(song, e.reason)
+        except OSError as e:
+            log.exception("preparation of %s failed", song)
+            self._fail(song, "disk_full" if e.errno == errno.ENOSPC else "processing_crashed")
+        except Exception:
+            log.exception("preparation of %s failed", song)
+            self._fail(song, "processing_crashed")
+        finally:
+            del self._jobs[song]
+            if song not in self._ranks:
+                self._board.pop(song, None)
+            self._changed()
 
-class Stages:
-    """The three stage runners, as one injectable object. Real: _pipeline.RealStages. Harness: FakeStages
-    copies fixture files after configurable delays, so the harness exercises the real scheduler,
-    staging, and install. Defined as a class with NotImplemented methods; see _pipeline.py for contracts."""
+    def _fail(self, song: SongId, reason: FailReason) -> None:
+        self._board[song] = PrepStatus("failed", None, reason)
 
-    async def download(self, song: SongMeta, source: Source, into: Path, progress: Callable[[float], None]) -> None:
-        raise NotImplementedError
+    def _slot(self, resource: Resource, song: SongId) -> AbstractAsyncContextManager[None]:
+        return (self._downloads if resource == "download" else self._accelerator).hold(song)
 
-    async def separate(self, into: Path, progress: Callable[[float], None]) -> None:
-        raise NotImplementedError
+    async def _record(self, request: PrepRequest, staging_dir: Path) -> SongRecord:
+        doc = LyricsDoc.model_validate_json((staging_dir / "lyrics.json").read_text("utf-8"))
+        names = await self._catalog.describe(request.song)
+        return SongRecord(request.song, names.artist_names, names.alt_titles, doc.language, doc.source,
+                          f"https://www.youtube.com/watch?v={request.song.id}")
 
-    async def lyrics(self, song: SongMeta, into: Path, progress: Callable[[float], None]) -> None:
-        raise NotImplementedError
+    def _report(self, song: SongId, stage: PrepStage, progress: float | None) -> None:
+        status = PrepStatus(stage, None if progress is None else round(progress * 20) / 20)
+        if self._board.get(song) != status:
+            self._board[song] = status
+            self._changed()
+
+    def _changed(self) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._on_board_change()
+            return
+        if self._flush is None:
+            delay = max(0.0, self._last_flush + 1 / BOARD_HZ - loop.time())
+            self._flush = loop.call_later(delay, self._emit)
+
+    def _emit(self) -> None:
+        self._flush = None
+        self._last_flush = asyncio.get_running_loop().time()
+        self._on_board_change()

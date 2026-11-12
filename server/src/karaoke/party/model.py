@@ -27,6 +27,9 @@ current song' carry it, so a stale skip from a second phone cannot skip the
 next song too (idempotent skip)."""
 
 KEY_MIN, KEY_MAX = -6, 6
+AV_OFFSET_MAX_S = 1.0
+NAME_MAX = 32
+FILLER_MEMORY = 20
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,7 +132,7 @@ class PartyState:
     settings: Settings
     tv_connected: bool
     recent_fillers: tuple[SongId, ...]
-    """Last N fillers, so random picks don't repeat back to back."""
+    """Last FILLER_MEMORY fillers, newest first, so random picks don't repeat."""
     next_entry_id: EntryId
     next_play_id: PlayId
 

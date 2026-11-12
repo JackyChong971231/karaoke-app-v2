@@ -9,11 +9,15 @@ Value-range rules (key -6..6, vocal 0..1) stay in the reducer so they have one h
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import assert_never
 
 from karaoke import contract as c
-from karaoke.core import SingerId
-from karaoke.party import inputs as i
-from karaoke.songs.catalog import Catalog
+from karaoke.core import SingerId, SongId
+from karaoke.party import (
+    Before, End, EntryId, Front, Input, MoveEntry, PlayId, Position, QueueSong, RemoveEntry, Rename, ResolveRestart,
+    SetAvOffset, SetKey, SetPaused, SetVocal, Skip, TrackEnded, TrackFailed,
+)
+from karaoke.songs.catalog import Catalog, PickId
 from karaoke.songs.library import Library
 from karaoke.vocab import RejectReason
 
@@ -26,18 +30,55 @@ class Unresolvable:
     reason: RejectReason
 
 
-def phone_input(cmd: c.PhoneCommand, by: SingerId, library: Library, catalog: Catalog) -> i.Input | Unresolvable:
-    """TODO pseudocode:
-        match cmd:
-            QueueLibraryCmd(song_id): rec = library.get(song_id); rec is None -> Unresolvable("unknown_entry")
-                                      -> i.QueueSong(by, rec.meta)
-            QueuePickCmd(pick_id):    meta = catalog.pick(pick_id); None -> Unresolvable("pick_expired")
-                                      -> i.QueueSong(by, meta)
-            MoveCmd(entry_id, to):    i.MoveEntry(by, EntryId(entry_id), Front()|End()|Before(EntryId(x)))
-            ... one line each for the rest; assert_never on the default branch.
-    """
-    raise NotImplementedError
+def phone_input(cmd: c.PhoneCommand, by: SingerId, library: Library, catalog: Catalog) -> Input | Unresolvable:
+    match cmd:
+        case c.QueueLibraryCmd(song_id=song_id):
+            rec = library.get(SongId(song_id))
+            return Unresolvable("unknown_entry") if rec is None else QueueSong(by, rec.meta)
+        case c.QueuePickCmd(pick_id=pick_id):
+            meta = catalog.pick(PickId(pick_id))
+            return Unresolvable("pick_expired") if meta is None else QueueSong(by, meta)
+        case c.RemoveCmd(entry_id=entry_id):
+            return RemoveEntry(by, EntryId(entry_id))
+        case c.MoveCmd(entry_id=entry_id, to=to):
+            return MoveEntry(by, EntryId(entry_id), _position(to))
+        case c.SetPausedCmd(play_id=play_id, paused=paused):
+            return SetPaused(by, PlayId(play_id), paused)
+        case c.SkipCmd(play_id=play_id):
+            return Skip(by, PlayId(play_id))
+        case c.SetKeyCmd(play_id=play_id, semitones=semitones):
+            return SetKey(by, PlayId(play_id), semitones)
+        case c.SetVocalCmd(level=level):
+            return SetVocal(by, level)
+        case c.SetAvOffsetCmd(seconds=seconds):
+            return SetAvOffset(by, seconds)
+        case c.RenameCmd(name=name):
+            return Rename(by, name)
+        case c.ResolveRestartCmd(keep=keep):
+            return ResolveRestart(keep)
+        case _:
+            assert_never(cmd)
 
 
-def tv_input(cmd: c.TvCommand) -> i.Input:
-    raise NotImplementedError
+def tv_input(cmd: c.TvCommand) -> Input:
+    match cmd:
+        case c.TrackEndedCmd(play_id=play_id):
+            return TrackEnded(PlayId(play_id))
+        case c.TrackFailedCmd(play_id=play_id, reason=reason):
+            return TrackFailed(PlayId(play_id), reason)
+        case c.ResolveRestartCmd(keep=keep):
+            return ResolveRestart(keep)
+        case _:
+            assert_never(cmd)
+
+
+def _position(to: c.ToFront | c.ToEnd | c.ToBefore) -> Position:
+    match to:
+        case c.ToFront():
+            return Front()
+        case c.ToEnd():
+            return End()
+        case c.ToBefore(entry_id=entry_id):
+            return Before(EntryId(entry_id))
+        case _:
+            assert_never(to)

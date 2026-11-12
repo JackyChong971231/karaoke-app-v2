@@ -6,121 +6,212 @@ Reading this file and fairness.py is enough to know every rule of the party.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import assert_never
 
+from karaoke.core import SongMeta
 from karaoke.party import fairness
 from karaoke.party.inputs import (
-    FillerPicked, Hello, Input, MoveEntry, QueueSong, RemoveEntry, Rename, ResolveRestart,
+    Before, End, FillerPicked, Front, Hello, Input, MoveEntry, QueueSong, RemoveEntry, Rename, ResolveRestart,
     SetAvOffset, SetKey, SetPaused, SetVocal, Skip, SongReady, TrackEnded, TrackFailed, TvPresence,
 )
 from karaoke.party.model import (
-    AwaitingRestartChoice, DurableSnapshot, Idle, PartyState, Playing, Rejected, Step,
+    AV_OFFSET_MAX_S, FILLER_MEMORY, KEY_MAX, KEY_MIN, NAME_MAX, Accepted, AwaitingRestartChoice, DurableSnapshot,
+    EntryId, Fairness, Filler, FromQueue, Idle, PartyState, PlayId, Playing, QueueEntry, Rejected, Running, Settings,
+    Step,
 )
+from karaoke.vocab import RejectReason
 
 
 def initial_state(saved: DurableSnapshot | None) -> PartyState:
     """State at boot. Fairness is always fresh.
 
-    saved is None or has an empty queue -> phase Running, empty queue, saved settings.
-    saved has queue entries            -> phase AwaitingRestartChoice(offer=saved.queue), empty live queue.
+    A saved non-empty queue becomes a keep-or-new offer; the live queue starts empty.
     `ready` starts empty: the Preparer reports SongReady for library songs as soon as they are demanded.
     """
-    raise NotImplementedError
+    offer = saved.queue if saved else ()
+    return PartyState(
+        phase=AwaitingRestartChoice(offer) if offer else Running(),
+        queue=(),
+        now=Idle(),
+        fairness=Fairness(),
+        singers={},
+        ready=frozenset(),
+        settings=saved.settings if saved else Settings(),
+        tv_connected=False,
+        recent_fillers=(),
+        next_entry_id=EntryId(1),
+        next_play_id=PlayId(1),
+    )
 
 
 def reduce(state: PartyState, inp: Input) -> Step:
     """Apply one input. Never raises for bad or stale input: returns Rejected(reason) and the
-    unchanged state. Raises only on broken invariants (a bug).
-
-    TODO pseudocode, by input:
-
-    Hello(by, name) / Rename(by, name):
-        singers[by] = name (trimmed, 1..32 chars else invalid_value)
-
-    ResolveRestart(keep):
-        phase is Running -> Rejected("already_resolved")            # first answer wins
-        keep  -> queue, fairness = fairness.renumber_kept(offer, next_entry_id)
-                 singers |= {e.singer: e.singer_name for e in offer} (existing live names win)
-        !keep -> queue = ()
-        phase = Running; then _settle(state)
-
-    Any queue-editing command while AwaitingRestartChoice -> Rejected("awaiting_restart_choice")
-
-    QueueSong(by, song):
-        by not in singers -> Rejected("unknown_singer")             # phone must Hello first
-        f   = fairness.with_joined(state.fairness, by)
-        e   = QueueEntry(next_entry_id, song, by, fairness.next_round(f, queue, by))
-        queue = fairness.insert_fairly(queue, e, f.join_order); next_entry_id += 1
-        _settle(state)                                               # starts it at once if Idle and ready
-
-    RemoveEntry(entry) / MoveEntry(entry, to):
-        entry not in queue -> Rejected("unknown_entry")              # e.g. another phone removed it first
-        MoveEntry Before(x) with x not in queue -> Rejected("unknown_entry")
-        Before(self) -> Accepted, no change
-
-    SetPaused / Skip / SetKey (play id):
-        now is Idle -> Rejected("nothing_playing")
-        play != now.play_id -> Rejected("stale_play")                # second phone's skip is a no-op
-        SetKey outside KEY_MIN..KEY_MAX -> Rejected("invalid_value")
-        Skip -> _advance(state)
-
-    SetVocal(level) 0..1 / SetAvOffset(seconds) 0..1.0: update settings, else invalid_value.
-
-    TrackEnded(play) / TrackFailed(play, _):
-        play != now.play_id -> Rejected("stale_play")                # late report from a reloaded TV
-        -> _advance(state)
-        (TrackFailed advances too; the failure goes to the server log via the shell, not to state.)
-
-    SongReady(song):  ready |= {song}; _settle(state)
-
-    FillerPicked(token, song):
-        token != next_play_id or now is not Idle or phase is not Running -> Accepted, no change
-        (stale picks are normal, not errors: a queued song became ready meanwhile)
-        -> _start(state, song, Filler()); recent_fillers = (song.id, *recent)[:10]
-
-    TvPresence(connected): tv_connected = connected
-    """
+    unchanged state object. Raises only on broken invariants (a bug)."""
     match inp:
-        case Hello() | Rename() | QueueSong() | RemoveEntry() | MoveEntry() | SetPaused() | Skip() \
-                | SetKey() | SetVocal() | SetAvOffset() | ResolveRestart() | TrackEnded() | TrackFailed() \
-                | SongReady() | FillerPicked() | TvPresence():
-            raise NotImplementedError
+        case Hello(by, name) | Rename(by, name):
+            clean = name.strip()
+            if not 1 <= len(clean) <= NAME_MAX:
+                return _reject(state, "invalid_value")
+            if state.singers.get(by) == clean:
+                return Step(state, Accepted())
+            return _ok(replace(state, singers={**state.singers, by: clean}))
+
+        case ResolveRestart(keep):
+            if not isinstance(state.phase, AwaitingRestartChoice):
+                return _reject(state, "already_resolved")
+            return _ok(_settle(_resolve_restart(state, state.phase, keep)))
+
+        case QueueSong() | RemoveEntry() | MoveEntry() if isinstance(state.phase, AwaitingRestartChoice):
+            return _reject(state, "awaiting_restart_choice")
+
+        case QueueSong(by, song):
+            if by not in state.singers:
+                return _reject(state, "unknown_singer")
+            joined = fairness.with_joined(state.fairness, by)
+            entry = QueueEntry(state.next_entry_id, song, by, fairness.next_round(joined, state.queue, by))
+            return _ok(_settle(replace(
+                state,
+                queue=fairness.insert_fairly(state.queue, entry, joined.join_order),
+                fairness=joined,
+                next_entry_id=EntryId(state.next_entry_id + 1),
+            )))
+
+        case RemoveEntry(_, entry_id):
+            if _find(state, entry_id) is None:
+                return _reject(state, "unknown_entry")
+            return _ok(_settle(replace(state, queue=tuple(e for e in state.queue if e.id != entry_id))))
+
+        case MoveEntry(_, entry_id, to):
+            moving = _find(state, entry_id)
+            if moving is None or (isinstance(to, Before) and _find(state, to.entry) is None):
+                return _reject(state, "unknown_entry")
+            if isinstance(to, Before) and to.entry == entry_id:
+                return Step(state, Accepted())
+            return _ok(replace(state, queue=_moved(state.queue, moving, to)))
+
+        case SetPaused(_, play, paused):
+            if (bad := _check_play(state, play)) is not None:
+                return _reject(state, bad)
+            assert isinstance(state.now, Playing)
+            return _ok(replace(state, now=replace(state.now, paused=paused)))
+
+        case SetKey(_, play, semitones):
+            if (bad := _check_play(state, play)) is not None:
+                return _reject(state, bad)
+            if not KEY_MIN <= semitones <= KEY_MAX:
+                return _reject(state, "invalid_value")
+            assert isinstance(state.now, Playing)
+            return _ok(replace(state, now=replace(state.now, semitones=semitones)))
+
+        case Skip(_, play) | TrackEnded(play) | TrackFailed(play, _):
+            if (bad := _check_play(state, play)) is not None:
+                return _reject(state, bad)
+            return _ok(_settle(replace(state, now=Idle())))
+
+        case SetVocal(_, level):
+            if not 0.0 <= level <= 1.0:
+                return _reject(state, "invalid_value")
+            return _ok(replace(state, settings=replace(state.settings, vocal_level=level)))
+
+        case SetAvOffset(_, seconds):
+            if not 0.0 <= seconds <= AV_OFFSET_MAX_S:
+                return _reject(state, "invalid_value")
+            return _ok(replace(state, settings=replace(state.settings, av_offset_s=seconds)))
+
+        case SongReady(song):
+            if song in state.ready:
+                return Step(state, Accepted())
+            return _ok(_settle(replace(state, ready=state.ready | {song})))
+
+        case FillerPicked(token, song):
+            # A stale pick is normal (a queued song became ready meanwhile), so it is accepted and dropped.
+            if token != state.next_play_id or not isinstance(state.now, Idle) or not isinstance(state.phase, Running):
+                return Step(state, Accepted())
+            started = _start(state, song, Filler())
+            return _ok(replace(started, recent_fillers=(song.id, *state.recent_fillers)[:FILLER_MEMORY]))
+
+        case TvPresence(connected):
+            if state.tv_connected == connected:
+                return Step(state, Accepted())
+            return _ok(replace(state, tv_connected=connected))
+
         case _:
             assert_never(inp)
 
 
-def _advance(state: PartyState) -> PartyState:
-    """Current song is over (ended, failed, or skipped). Go Idle, then settle.
-
-    The finished song is not re-queued; its singer's count was already taken at start.
-    """
-    raise NotImplementedError
+def _resolve_restart(state: PartyState, prompt: AwaitingRestartChoice, keep: bool) -> PartyState:
+    if not keep:
+        return replace(state, phase=Running())
+    queue, fresh = fairness.renumber_kept(prompt.offer, state.next_entry_id)
+    kept_names = {e.singer: e.singer_name for e in prompt.offer}
+    return replace(
+        state,
+        phase=Running(),
+        queue=queue,
+        fairness=fresh,
+        singers={**kept_names, **state.singers},
+        next_entry_id=EntryId(state.next_entry_id + len(queue)),
+    )
 
 
 def _settle(state: PartyState) -> PartyState:
     """If the TV is Idle, start the first READY entry in queue order.
 
-    TODO pseudocode:
-        if phase is not Running or now is not Idle: return state
-        for e in queue:                         # in order
-            if e.song.id in ready:
-                return _start(state without e, e.song, FromQueue(e))
-        return state                            # stays Idle; projections.filler_request takes over
-
-    Spec rules encoded here:
     - "If a song is not ready when its turn comes, the next ready song plays. The unready song keeps
       its place at the front": unready entries are skipped over, never moved.
-    - A filler that is Playing is not Idle, so a queued song becoming ready does NOT interrupt it
-      (product assumption: the filler plays to its end; any singer can Skip it).
+    - A filler that is Playing is not Idle, so a queued song becoming ready does NOT interrupt it.
     """
-    raise NotImplementedError
+    if not isinstance(state.phase, Running) or not isinstance(state.now, Idle):
+        return state
+    for e in state.queue:
+        if e.song.id in state.ready:
+            rest = tuple(x for x in state.queue if x.id != e.id)
+            return _start(replace(state, queue=rest), e.song, FromQueue(e))
+    return state
 
 
-def _start(state: PartyState, song, origin) -> PartyState:
-    """now = Playing(next_play_id, song, origin, paused=False, semitones=0); next_play_id += 1.
-    FromQueue: fairness.sung[singer] += 1 here, at start."""
-    raise NotImplementedError
+def _start(state: PartyState, song: SongMeta, origin: FromQueue | Filler) -> PartyState:
+    """A song counts as sung when it starts, so a song its singer queues during it gets the right round."""
+    now = Playing(state.next_play_id, song, origin)
+    f = state.fairness
+    if isinstance(origin, FromQueue):
+        singer = origin.entry.singer
+        f = Fairness(join_order=f.join_order, sung={**f.sung, singer: f.sung.get(singer, 0) + 1})
+    return replace(state, now=now, fairness=f, next_play_id=PlayId(state.next_play_id + 1))
 
 
-def _reject(state: PartyState, reason) -> Step:
+def _moved(queue: tuple[QueueEntry, ...], moving: QueueEntry, to: Front | End | Before) -> tuple[QueueEntry, ...]:
+    rest = tuple(e for e in queue if e.id != moving.id)
+    match to:
+        case Front():
+            return (moving, *rest)
+        case End():
+            return (*rest, moving)
+        case Before(target):
+            i = next(i for i, e in enumerate(rest) if e.id == target)
+            return (*rest[:i], moving, *rest[i:])
+        case _:
+            assert_never(to)
+
+
+def _check_play(state: PartyState, play: PlayId) -> RejectReason | None:
+    if not isinstance(state.now, Playing):
+        return "nothing_playing"
+    if play != state.now.play_id:
+        return "stale_play"
+    return None
+
+
+def _find(state: PartyState, entry_id: EntryId) -> QueueEntry | None:
+    return next((e for e in state.queue if e.id == entry_id), None)
+
+
+def _ok(state: PartyState) -> Step:
+    return Step(state, Accepted())
+
+
+def _reject(state: PartyState, reason: RejectReason) -> Step:
     return Step(state, Rejected(reason))
+
+
