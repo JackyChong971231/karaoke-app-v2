@@ -1,0 +1,146 @@
+.imp {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 24px 32px 80px;
+}
+
+.imp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.imp-head .brand {
+  font-size: 22px;
+}
+
+.imp-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.imp-summary {
+  margin: 24px 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.imp-stat {
+  padding: 16px 18px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+}
+
+.imp-stat-value {
+  font-size: 28px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.imp-stat-label {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.imp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.imp-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 24px minmax(240px, 1.4fr) 150px auto;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  transition: opacity 200ms, border-color 200ms;
+}
+
+.imp-row.is-confirmed,
+.imp-row.is-corrected {
+  border-color: rgba(52, 211, 153, 0.3);
+}
+
+.imp-row.is-skipped,
+.imp-row.is-imported {
+  opacity: 0.55;
+}
+
+.imp-v1-title {
+  margin-top: 4px;
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.imp-arrow {
+  color: var(--faint);
+}
+
+.imp-match {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.imp-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.btn-sm {
+  height: 38px;
+  padding: 0 14px;
+  font-size: 14px;
+}
+
+.btn-on {
+  background: rgba(124, 92, 255, 0.25);
+  border-color: rgba(124, 92, 255, 0.6);
+}
+
+.imp-decision {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.imp-decision.is-proposed {
+  color: var(--amber);
+  background: rgba(251, 191, 36, 0.12);
+}
+
+.imp-decision.is-confirmed,
+.imp-decision.is-corrected {
+  color: var(--green);
+  background: rgba(52, 211, 153, 0.12);
+}
+
+@media (max-width: 900px) {
+  .imp {
+    padding: 16px;
+  }
+  .imp-summary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .imp-row {
+    grid-template-columns: 1fr;
+  }
+  .imp-arrow {
+    display: none;
+  }
+}

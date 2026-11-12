@@ -1,0 +1,180 @@
+// Small presentational pieces shared by the phone screens and the import page.
+
+import type { JSX } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { thumbnailFor } from "../wire/http";
+import { assertNever } from "../wire/socket";
+import type { Readiness } from "../wire/types";
+import { failText, stageText } from "./text";
+
+const PATHS = {
+  play: "M8 5.14v13.72a1 1 0 0 0 1.52.85l10.9-6.86a1 1 0 0 0 0-1.7L9.52 4.29A1 1 0 0 0 8 5.14Z",
+  pause: "M6.5 5h4v14h-4zM13.5 5h4v14h-4z",
+  skip: "M5 5.9v12.2a1 1 0 0 0 1.55.83L15 13.2V18a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-1a1 1 0 0 0-1 1v4.8L6.55 5.07A1 1 0 0 0 5 5.9Z",
+  mic: "M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2Z",
+  queue: "M3 6h13v2H3zm0 5h13v2H3zm0 5h9v2H3zm15-5v6.27A3 3 0 1 0 20 20V13h2v-2h-4Z",
+  search:
+    "M10.5 3a7.5 7.5 0 0 1 5.96 12.05l4.25 4.24-1.42 1.42-4.24-4.25A7.5 7.5 0 1 1 10.5 3Zm0 2a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11Z",
+  plus: "M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z",
+  minus: "M5 11h14v2H5z",
+  check: "m9.5 16.6-4.3-4.3-1.4 1.4 5.7 5.7L21.2 7.7l-1.4-1.4z",
+  close: "m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4z",
+  back: "M15.7 5.7 14.3 4.3 6.6 12l7.7 7.7 1.4-1.4L9.4 12z",
+  more: "M12 7a2 2 0 1 1 0-4 2 2 0 0 1 0 4Zm0 7a2 2 0 1 1 0-4 2 2 0 0 1 0 4Zm0 7a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z",
+  grip: "M9 5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Zm6 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM9 10.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Zm6 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM9 16a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Zm6 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Z",
+  up: "M12 4.6 4.3 12.3l1.4 1.4L11 8.4V20h2V8.4l5.3 5.3 1.4-1.4z",
+  trash: "M9 3h6l1 2h4v2H4V5h4l1-2Zm-3 6h12l-1 12H7L6 9Zm4 2v8h1.5v-8H10Zm3.5 0v8H15v-8h-1.5Z",
+  alert: "M12 3 1.8 20.5h20.4L12 3Zm-1 6h2v6h-2V9Zm0 8h2v2h-2v-2Z",
+  tv: "M3 5h18a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1h-7v2h3v2H7v-2h3v-2H3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Zm1 2v9h16V7H4Z",
+  note: "M19 3v12.5a3.5 3.5 0 1 1-2-3.16V7h-7v10.5a3.5 3.5 0 1 1-2-3.16V3h11Z",
+  user: "M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Zm0 2c-4.4 0-8 2.2-8 5v2h16v-2c0-2.8-3.6-5-8-5Z",
+  vocalOff:
+    "M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-5.82-1.03L15 9.8V11M3.3 2.9 2 4.2l7 7V11a3 3 0 0 0 4.23 2.73l1.45 1.45A5 5 0 0 1 7 11H5a7 7 0 0 0 6 6.92V21h2v-3.08a6.96 6.96 0 0 0 3.14-1.24l3.65 3.65 1.3-1.3L3.3 2.9ZM19 11h-2c0 .74-.16 1.44-.45 2.07l1.48 1.48c.6-1.04.97-2.27.97-3.55Z",
+} as const;
+
+export type IconName = keyof typeof PATHS;
+
+export function Icon(props: { name: IconName; size?: number; className?: string }): JSX.Element {
+  const size = props.size ?? 24;
+  return (
+    <svg
+      className={`icon ${props.className ?? ""}`}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path fill="currentColor" d={PATHS[props.name]} />
+    </svg>
+  );
+}
+
+export function Spinner(props: { size?: number }): JSX.Element {
+  const size = props.size ?? 18;
+  return <span className="spinner" style={{ width: size, height: size }} role="status" aria-label="Working" />;
+}
+
+const GRADIENTS = [
+  ["#8b5cf6", "#3b2a8f"],
+  ["#2f7bff", "#1b3f8f"],
+  ["#ec4899", "#7e1d55"],
+  ["#f97316", "#8a2d0b"],
+  ["#14b8a6", "#0b5a52"],
+  ["#6366f1", "#2e2f8a"],
+  ["#e11d48", "#6d0f27"],
+  ["#0ea5e9", "#0b4a6b"],
+] as const;
+
+/** FNV-1a, so IDs that differ only in their last characters still land on different colours. */
+function gradientFor(seed: string): string {
+  let h = 0x811c9dc5;
+  for (const ch of seed) h = Math.imul(h ^ (ch.codePointAt(0) ?? 0), 0x01000193);
+  const [a, b] = GRADIENTS[(h >>> 0) % GRADIENTS.length] ?? GRADIENTS[0];
+  return `linear-gradient(135deg, ${a}, ${b})`;
+}
+
+/** Song art: the YouTube still when it loads, a colour drawn from the song otherwise. Fixed size, no shift. */
+export function Art(props: { songId?: string; src?: string; title: string; size?: "sm" | "md" | "lg" }): JSX.Element {
+  const src = props.src ?? (props.songId !== undefined ? thumbnailFor(props.songId) : undefined);
+  const [state, setState] = useState<"loading" | "ok" | "fail">("loading");
+  useEffect(() => { setState("loading"); }, [src]);
+  const initial = [...props.title.trim()][0] ?? "♪";
+  return (
+    <div
+      className={`art art-${props.size ?? "sm"}`}
+      style={{ background: gradientFor(props.songId ?? props.title) }}
+    >
+      <span className="art-initial">{initial}</span>
+      {src !== undefined && state !== "fail" && (
+        <img
+          src={src}
+          alt=""
+          loading="lazy"
+          className={state === "ok" ? "is-loaded" : ""}
+          onLoad={(e) => {
+            // YouTube serves a 120x90 grey placeholder for unknown IDs instead of a 404.
+            setState(e.currentTarget.naturalWidth <= 120 ? "fail" : "ok");
+          }}
+          onError={() => { setState("fail"); }}
+        />
+      )}
+    </div>
+  );
+}
+
+export function ReadinessChip(props: { readiness: Readiness }): JSX.Element {
+  const r = props.readiness;
+  switch (r.kind) {
+    case "ready":
+      return (
+        <span className="chip chip-ready" data-testid="readiness" data-state="ready">
+          <span className="chip-dot" /> Ready
+        </span>
+      );
+    case "preparing":
+      return (
+        <span className="chip chip-preparing" data-testid="readiness" data-state="preparing">
+          <ProgressRing value={r.progress} />
+          {stageText[r.stage]}
+          {r.progress !== null && <span className="chip-num">{Math.round(r.progress * 100)}%</span>}
+        </span>
+      );
+    case "failed":
+      return (
+        <span className="chip chip-failed" data-testid="readiness" data-state="failed">
+          <Icon name="alert" size={13} /> {failText[r.reason]}
+        </span>
+      );
+    default:
+      return assertNever(r);
+  }
+}
+
+function ProgressRing(props: { value: number | null }): JSX.Element {
+  const r = 6;
+  const c = 2 * Math.PI * r;
+  return (
+    <svg className={`ring ${props.value === null ? "is-spinning" : ""}`} width="16" height="16" viewBox="0 0 16 16">
+      <circle cx="8" cy="8" r={r} className="ring-track" />
+      <circle
+        cx="8"
+        cy="8"
+        r={r}
+        className="ring-value"
+        strokeDasharray={c}
+        strokeDashoffset={props.value === null ? c * 0.7 : c * (1 - props.value)}
+      />
+    </svg>
+  );
+}
+
+/** Bottom sheet. Stays mounted while closing so it can slide out. */
+export function Sheet(props: {
+  open: boolean;
+  onClose: () => void;
+  title?: ReactNode;
+  children: ReactNode;
+  testId?: string;
+}): JSX.Element | null {
+  const [mounted, setMounted] = useState(props.open);
+  useEffect(() => {
+    if (props.open) setMounted(true);
+    else {
+      const t = window.setTimeout(() => { setMounted(false); }, 260);
+      return () => { window.clearTimeout(t); };
+    }
+    return undefined;
+  }, [props.open]);
+  if (!mounted) return null;
+  return (
+    <div className={`sheet-root ${props.open ? "is-open" : ""}`} data-testid={props.testId}>
+      <div className="sheet-backdrop" onClick={props.onClose} />
+      <div className="sheet" role="dialog" aria-modal="true">
+        <div className="sheet-grabber" />
+        {props.title !== undefined && <div className="sheet-title">{props.title}</div>}
+        {props.children}
+      </div>
+    </div>
+  );
+}

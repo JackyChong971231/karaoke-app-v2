@@ -1,7 +1,7 @@
 // User-facing words for every closed vocabulary. Each table is a Record over the GENERATED union, so adding a
 // member in server/src/karaoke/vocab.py breaks this file's compile until it gets a label. No hand-synced lists.
 
-import type { FailReason, PrepStage, RejectReason } from "../wire/generated";
+import type { FailReason, PrepStage, RejectReason } from "../wire/types";
 
 export const rejectText: Record<RejectReason, string> = {
   awaiting_restart_choice: "Choose to keep or start a new queue first",
@@ -29,3 +29,12 @@ export const failText: Record<FailReason, string> = {
   processing_crashed: "Preparation failed",
   disk_full: "Laptop disk is full",
 };
+
+export function formatTime(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  return `${String(Math.floor(s / 60))}:${String(s % 60).padStart(2, "0")}`;
+}
+
+export function formatKey(semitones: number): string {
+  return semitones > 0 ? `+${String(semitones)}` : String(semitones);
+}

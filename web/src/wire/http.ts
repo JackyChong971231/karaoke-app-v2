@@ -1,0 +1,53 @@
+// HTTP queries. Every body is a contract model serialized by the server from the same contract.py the types
+// are generated from, so the boundary check is the HTTP status; the shape is the contract's.
+
+import type {
+  ArtistResponse,
+  ImportDecideRequest,
+  ImportPlanView,
+  LyricsDoc,
+  SearchResponse,
+  VideoChoiceResponse,
+} from "./types";
+
+export class HttpError extends Error {
+  constructor(readonly status: number, url: string) {
+    super(`${String(status)} from ${url}`);
+  }
+}
+
+async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
+  const res = await fetch(url, init);
+  if (!res.ok) throw new HttpError(res.status, url);
+  const text = await res.text();
+  return (text === "" ? null : JSON.parse(text)) as T;
+}
+
+const q = encodeURIComponent;
+
+export const api = {
+  search: (query: string, signal: AbortSignal) => request<SearchResponse>(`/api/search?q=${q(query)}`, { signal }),
+  artist: (artistId: string, signal: AbortSignal) => request<ArtistResponse>(`/api/artist/${q(artistId)}`, { signal }),
+  videoChoice: (onlineKey: string, signal: AbortSignal) =>
+    request<VideoChoiceResponse>(`/api/video-choice?key=${q(onlineKey)}`, { signal }),
+  lyrics: (songId: string, signal: AbortSignal) => request<LyricsDoc>(`/media/${q(songId)}/lyrics.json`, { signal }),
+  importPlan: (signal?: AbortSignal) => request<ImportPlanView>("/api/import", signal ? { signal } : {}),
+  importMatch: (limit: number | null) =>
+    request<unknown>(limit === null ? "/api/import/plan" : `/api/import/plan?limit=${String(limit)}`, { method: "POST" }),
+  importDecide: (body: ImportDecideRequest) =>
+    request<unknown>("/api/import/decide", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  importRun: () => request<unknown>("/api/import/run", { method: "POST" }),
+};
+
+export function mediaUrl(songId: string, file: "video.mp4" | "instrumental.opus" | "vocals.opus"): string {
+  return `/media/${q(songId)}/${file}`;
+}
+
+/** YouTube's still for a video ID. Song IDs are YouTube video IDs; callers fall back when it fails to load. */
+export function thumbnailFor(songId: string): string {
+  return `https://i.ytimg.com/vi/${q(songId)}/mqdefault.jpg`;
+}
