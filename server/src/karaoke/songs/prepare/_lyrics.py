@@ -68,7 +68,7 @@ def _s2hk() -> OpenCC:
 
 
 def to_traditional(text: str) -> str:
-    return _s2hk().convert(text)
+    return str(_s2hk().convert(text))
 
 
 # ---- LRCLIB ----

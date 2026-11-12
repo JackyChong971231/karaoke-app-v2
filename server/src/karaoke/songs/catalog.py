@@ -110,6 +110,7 @@ class YouTubeMusic(Protocol):
     def search(self, query: str, language: str) -> list[dict]: ...  # type: ignore[type-arg]
     def videos(self, query: str) -> list[dict]: ...  # type: ignore[type-arg]
     def artist(self, artist: ArtistId, language: str) -> dict: ...  # type: ignore[type-arg]
+    def track(self, video: SongId, language: str) -> dict | None: ...  # type: ignore[type-arg]
 
 
 class YTMusicPort:
@@ -133,6 +134,10 @@ class YTMusicPort:
 
     def artist(self, artist: ArtistId, language: str) -> dict:  # type: ignore[type-arg]
         return dict(self._yt(language).get_artist(artist))
+
+    def track(self, video: SongId, language: str) -> dict | None:  # type: ignore[type-arg]
+        tracks = self._yt(language).get_watch_playlist(video, limit=1).get("tracks") or []
+        return dict(tracks[0]) if tracks and tracks[0].get("videoId") == video else None
 
 
 # ---- pure rules ----
@@ -241,7 +246,7 @@ def pair_results(zh: list[dict], en: list[dict]) -> list[_Seen]:  # type: ignore
         e = en_by_id.get(r["videoId"])
         a = r["artists"][0]
         e_artist = next((x["name"] for x in (e or {}).get("artists") or [] if x.get("id") == a["id"]), None)
-        seen.append(_Seen(OnlineKey(r["videoId"]), r.get("title") or "", e and e.get("title"), ArtistId(a["id"]),
+        seen.append(_Seen(OnlineKey(r["videoId"]), r.get("title") or "", e.get("title") if e else None, ArtistId(a["id"]),
                           a.get("name") or "", e_artist, _seconds(r) or _seconds(e or {}), _thumbnail(r),
                           tuple(spellings.get(a["id"], ()))))
     return seen
@@ -331,6 +336,27 @@ class Catalog:
             for v in videos[:CANDIDATES]
         ))
 
+    async def identify(self, video: SongId) -> OnlineKey | None:
+        """The song a known official video belongs to, from YouTube Music's own record of that video rather
+        than a text search. Text search guessed the wrong song for titles v1 had already pinned to a video id.
+        None for fan uploads, whose record names the uploader instead of the artist."""
+        try:
+            zh, en = await asyncio.gather(asyncio.to_thread(self._yt.track, video, "zh_TW"),
+                                          asyncio.to_thread(self._yt.track, video, "en"))
+        except Exception:
+            return None
+        # A fan upload's record is its raw video title and the uploader's channel, not the song and artist.
+        if not zh or zh.get("videoType") == "MUSIC_VIDEO_TYPE_UGC":
+            return None
+        def as_song(t: dict | None) -> list[dict]:  # type: ignore[type-arg]
+            return [{**t, "resultType": "song", "duration": t.get("length"),
+                     "thumbnails": t.get("thumbnail") or t.get("thumbnails")}] if t else []
+        seen = pair_results(as_song(zh), as_song(en))
+        if not seen:
+            return None
+        self._seen.put(seen[0].key, seen[0])
+        return seen[0].key
+
     def pick_video(self, song: OnlineKey, video: SongId) -> PickId:
         """The song's identity on a video the caller already knows, such as the v1 video an import reuses."""
         s: _Seen | None = self._seen.get(song)
@@ -368,7 +394,7 @@ class Catalog:
         title = search_key(song.title)
         mine = [s for s in pair_results(zh, en) if s.artist_id == song.artist.id]
         same = [s for s in mine if title in {search_key(t) for t in (s.zh_title, s.en_title) if t}]
-        best = (same or mine or [None])[0]
+        best = next(iter(same or mine), None)
         if best is None:
             return fallback
         n = best.names()

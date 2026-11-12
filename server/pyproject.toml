@@ -89,3 +89,7 @@ forbidden_modules = ["torch", "demucs", "stable_whisper"]
 
 [tool.mypy]
 strict = true
+
+[[tool.mypy.overrides]]
+module = ["opencc", "soundfile", "stable_whisper"]
+ignore_missing_imports = true

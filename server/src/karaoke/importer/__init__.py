@@ -34,8 +34,10 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from karaoke.core import ArtistId, ArtistRef, SongId, SongMeta
-from karaoke.songs.catalog import Catalog, ChooseVideo, OfficialVideo, OnlineUnavailable, PickId, VideoCandidate
-from karaoke.songs.library import Library
+from karaoke.songs.catalog import (
+    Catalog, ChooseVideo, OfficialVideo, OnlineKey, OnlineUnavailable, PickId, VideoCandidate,
+)
+from karaoke.songs.library import Library, search_key
 from karaoke.songs.prepare import FromV1Files, FromYouTube, PrepRequest, Preparer
 from karaoke.vocab import ImportDecision
 
@@ -151,21 +153,33 @@ class ImportService:
         missing = [p.name for p in (song.video, song.instrumental, song.vocals) if not p.is_file()]
         if missing:
             return PlanItem(song, None, None, "skipped", f"v1 files missing: {', '.join(missing)}")
+        if song.video_id:
+            record = self._library.get(song.video_id)
+            if record:
+                return PlanItem(song, record.meta, None, "proposed", "already in the library")
+            key = await self._catalog.identify(song.video_id)
+            if key:
+                return await self._propose_for(song, key)
         result = await self._catalog.search(clean_title(song.raw_title))
         if isinstance(result.online, OnlineUnavailable):
             return PlanItem(song, None, None, "proposed", f"online search unavailable: {result.online.reason}")
-        if not result.online:
-            hit = result.library[0].song if result.library else None
+        # Search hides online copies of library songs, so a song already in the library must be taken from the
+        # library hits, or the top online result is a different song by the same artist.
+        named = next((h.song for h in result.library if search_key(h.song.title) in search_key(song.raw_title)), None)
+        if named or not result.online:
+            hit = named or (result.library[0].song if result.library else None)
             return PlanItem(song, hit, None, "proposed", "already in the library" if hit else "no song found")
-        top = result.online[0]
-        match await self._catalog.resolve_video(top.key):
+        return await self._propose_for(song, result.online[0].key)
+
+    async def _propose_for(self, song: V1Song, key: OnlineKey) -> PlanItem:
+        match await self._catalog.resolve_video(key):
             case OfficialVideo(pick=pick):
                 return PlanItem(song, self._catalog.pick(pick), None, "proposed")
             case ChooseVideo(candidates=candidates):
                 video = song.video_id or _same_video(candidates, song.raw_title)
                 if video is None:
                     return PlanItem(song, None, None, "proposed", "v1 video id unknown; pick its video")
-                return PlanItem(song, self._catalog.pick(self._catalog.pick_video(top.key, video)), None, "proposed")
+                return PlanItem(song, self._catalog.pick(self._catalog.pick_video(key, video)), None, "proposed")
         raise AssertionError("unreachable")
 
     def items(self) -> list[PlanItem]:

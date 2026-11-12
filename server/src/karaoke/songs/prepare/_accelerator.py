@@ -18,7 +18,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from multiprocessing.connection import Connection
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from karaoke.songs.prepare._model import Device, PrepFailed
 
@@ -81,7 +81,7 @@ class Accelerator:
 
     def __init__(self) -> None:
         self._proc: Any = None
-        self._conn: Connection | None = None
+        self._conn: Any = None
         self._device: Device | None = None
         self._lock = asyncio.Lock()
         self._starting = asyncio.Lock()
@@ -106,8 +106,8 @@ class Accelerator:
         self._job = _kill_with_parent(self._proc.pid)
         kind, device = await asyncio.to_thread(self._recv)
         assert kind == "ready"
-        self._device = device
-        return device
+        self._device = cast(Device, device)
+        return self._device
 
     async def run(self, task: Task, progress: Callable[[float], None]) -> Any:
         """Send a task and await its result. If the child dies mid-task it is restarted and the task

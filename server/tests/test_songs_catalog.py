@@ -139,3 +139,31 @@ def test_online_duplicates_of_library_songs_are_dropped(library: Library, tmp_pa
     result = asyncio.run(Catalog(library, FakeYT()).search("陀飛輪"))
     assert [h.song.id for h in result.library] == ["omv1"]
     assert [s.title for s in result.online] == ["Complicated"]  # type: ignore[union-attr]
+
+
+class TrackYT(FakeYT):
+    def __init__(self, kind: str) -> None:
+        super().__init__()
+        self.kind = kind
+
+    def track(self, video_id: SongId, language: str) -> dict | None:
+        name, title = ("陳奕迅", "陀飛輪") if language == "zh_TW" else ("Eason Chan", "陀飛輪")
+        return {"videoId": video_id, "title": title, "videoType": self.kind, "length": "4:48",
+                "artists": [{"name": name, "id": EASON}], "thumbnail": [{"url": "t", "width": 60}]}
+
+
+def test_identify_trusts_an_official_videos_own_record(library: Library) -> None:
+    cat = Catalog(library, TrackYT("MUSIC_VIDEO_TYPE_OMV"))
+    key = asyncio.run(cat.identify(SongId("omv1")))
+    assert key == "omv1"
+    yt = cat._yt
+    assert isinstance(yt, TrackYT)
+    yt.vids = [video("omv1", "陀飛輪", EASON)]
+    resolved = asyncio.run(cat.resolve_video(key))
+    assert isinstance(resolved, OfficialVideo)
+    meta = cat.pick(resolved.pick)
+    assert meta is not None and (meta.title, meta.artist.name, meta.id) == ("陀飛輪", "陳奕迅", "omv1")
+
+
+def test_identify_ignores_fan_uploads_whose_record_names_the_uploader(library: Library) -> None:
+    assert asyncio.run(Catalog(library, TrackYT("MUSIC_VIDEO_TYPE_UGC")).identify(SongId("ugc1"))) is None

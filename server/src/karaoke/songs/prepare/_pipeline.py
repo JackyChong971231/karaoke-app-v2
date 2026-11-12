@@ -95,7 +95,8 @@ async def prepare_song(song: SongMeta, source: Source, staging: Path, stages: St
         report("waiting", None)
         async with slot(step.resource, song.id):
             report(step.stage, 0.0)
-            await step.run(stages, song, source, staging, lambda p, s=step.stage: report(s, p))
+            stage = step.stage
+            await step.run(stages, song, source, staging, lambda p: report(stage, p))
         missing = [f for f in step.outputs if not (staging / f).exists()]
         if missing:
             raise PrepFailed("processing_crashed", f"{step.stage} did not produce {missing}")

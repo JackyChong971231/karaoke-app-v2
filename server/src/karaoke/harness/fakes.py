@@ -104,6 +104,10 @@ class FakeYouTubeMusic:
         name = songs[0].en_artist if language == "en" else songs[0].zh_artist
         return {"name": name, "channelId": artist, "songs": {"results": [self._song(s, language) for s in songs]}}
 
+    def track(self, video: SongId, language: str) -> dict[str, Any] | None:
+        song = next((s for s in CATALOG if video == s.atv or any(v.video_id == video for v in s.videos)), None)
+        return {**self._song(song, language), "videoId": video} if song else None
+
     @staticmethod
     def _song(s: _Song, language: str) -> dict[str, Any]:
         en = language == "en"

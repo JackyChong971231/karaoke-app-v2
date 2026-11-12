@@ -101,7 +101,7 @@ def _t2s() -> OpenCC:
 
 def search_key(text: str) -> str:
     """Case-, width-, and script-insensitive form: 陳奕迅, 陈奕迅 and ｅａｓｏｎ all meet."""
-    return _t2s().convert(unicodedata.normalize("NFKC", text).casefold())
+    return str(_t2s().convert(unicodedata.normalize("NFKC", text).casefold()))
 
 
 def cloud_sync_reason(root: Path) -> str | None:

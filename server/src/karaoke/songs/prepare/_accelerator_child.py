@@ -12,8 +12,9 @@ from collections.abc import Callable
 from multiprocessing.connection import Connection
 from typing import Any
 
+from karaoke.songs.prepare._model import Device
 from karaoke.songs.prepare._accelerator import (
-    WHISPER_MODEL, Align, AlignedLine, AlignedWord, Device, Separate, Task, Transcribe, Transcript,
+    WHISPER_MODEL, Align, AlignedLine, AlignedWord, Separate, Task, Transcribe, Transcript,
 )
 
 
@@ -25,7 +26,7 @@ def main(conn: Connection) -> None:
         torch.set_num_threads(max(1, (os.cpu_count() or 4) - 2))
         if sys.platform == "win32":
             import ctypes
-            k32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            k32 = ctypes.windll.kernel32
             k32.SetPriorityClass(k32.GetCurrentProcess(), 0x00004000)  # BELOW_NORMAL_PRIORITY_CLASS
     conn.send(("ready", device))
     models = _Models(device)
