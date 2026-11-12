@@ -34,6 +34,7 @@ export default defineConfig({
       external: [STRETCH_URL],
       input: {
         phone: resolve(import.meta.dirname, "index.html"),
+        control: resolve(import.meta.dirname, "control.html"),
         tv: resolve(import.meta.dirname, "tv.html"),
         import: resolve(import.meta.dirname, "import.html"),
       },

@@ -16,9 +16,7 @@ import contextlib
 import io
 import logging
 import os
-import shutil
 import socket
-import subprocess
 import sys
 import tempfile
 import time
@@ -35,6 +33,7 @@ from karaoke.shell.http import Services, routes, static_mount
 from karaoke.shell.hub import Hub
 from karaoke.shell.journal import Journal, replay
 from karaoke.shell.loop import PartyLoop
+from karaoke.shell.screens import open_pages
 from karaoke.shell.store import Store
 from karaoke.songs.catalog import Catalog, YouTubeMusic, YTMusicPort
 from karaoke.songs.library import CloudSyncedRoot, Library
@@ -113,6 +112,7 @@ async def serve(args: argparse.Namespace) -> None:
     print(f"Karaoke ({args.world} world)")
     print(f"  Phones: {join_url}")
     print(f"  TV:     http://localhost:{args.port}/tv")
+    print(f"  Control: http://localhost:{args.port}/control")
     print(f"  Data:   {data}")
     print(f"  Library: {library_dir}")
     if fake:
@@ -124,7 +124,7 @@ async def serve(args: argparse.Namespace) -> None:
     tasks = [asyncio.create_task(loop.run(), name="party-loop"),
              asyncio.create_task(preparer.run(), name="preparer")]
     if args.open_tv if args.open_tv is not None else not fake:
-        asyncio.get_running_loop().call_later(1.0, open_tv, args.port, data)
+        asyncio.get_running_loop().call_later(1.0, open_pages, args.port, data)
     try:
         await server.serve()
     finally:
@@ -132,18 +132,6 @@ async def serve(args: argparse.Namespace) -> None:
             t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         journal.close()
-
-
-def open_tv(port: int, data: Path) -> None:
-    """Edge in kiosk mode with autoplay allowed, in its own profile so the flags apply even if Edge is open."""
-    edge = shutil.which("msedge") or next(
-        (p for p in (r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-                     r"C:\Program Files\Microsoft\Edge\Application\msedge.exe") if Path(p).exists()), None)
-    if edge is None:
-        print(f"  Open http://localhost:{port}/tv on the TV screen (Edge was not found).")
-        return
-    subprocess.Popen([edge, "--kiosk", "--autoplay-policy=no-user-gesture-required", "--no-first-run",
-                      f"--user-data-dir={data / 'edge-tv'}", f"http://localhost:{port}/tv"])
 
 
 def main() -> None:
@@ -159,7 +147,8 @@ def main() -> None:
     s.add_argument("--web-dist", type=Path, default=WEB_DIST)
     s.add_argument("--fake-delay", type=float, default=1.0, help="seconds per fake preparation stage")
     s.add_argument("--open-tv", dest="open_tv", action="store_true", default=None)
-    s.add_argument("--no-open-tv", dest="open_tv", action="store_false")
+    s.add_argument("--no-open-tv", dest="open_tv", action="store_false",
+                   help="do not open the TV and control windows")
     r = sub.add_parser("replay", help="re-run a journal through the reducer")
     r.add_argument("journal", type=Path)
     args = parser.parse_args()

@@ -5,12 +5,18 @@ Run every command from this folder. `uv` installs Python and the dependencies on
 
 ## Run a party
 
+Double-click `Start Karaoke.cmd` in the repository root. It restarts the app cleanly, builds the web pages on first
+use, and stops the app when its window closes. Set `KARAOKE_V1` to a v1 install folder to turn on the import page.
+From a terminal:
+
 ```
 uv run karaoke serve
 ```
 
-The server prints the phone address, for example `http://192.168.1.20:8080/`, and opens the TV page in Edge in
-kiosk mode. Put that address in front of the guests (the TV page shows it as a QR code).
+The server prints the phone address, for example `http://192.168.1.20:8080/`. It opens the TV page full screen on
+the second screen and the control page (`/control`, the phone controls for the mouse) on the main screen, both in
+Edge. With one screen both open as ordinary windows. Put the phone address in front of the guests (the TV page
+shows it as a QR code).
 
 | Option | Default | Meaning |
 | --- | --- | --- |
@@ -18,7 +24,7 @@ kiosk mode. Put that address in front of the guests (the TV page shows it as a Q
 | `--library DIR` | `%LOCALAPPDATA%\Karaoke\library` | Song folders. Must not be in a cloud-synced folder. |
 | `--data DIR` | `%LOCALAPPDATA%\Karaoke` | `party.json`, journals, and the import plan. |
 | `--v1 DIR` | none | A v1 install folder. Turns on the `/import` page. |
-| `--no-open-tv` | | Do not launch Edge. Open `http://localhost:8080/tv` yourself. |
+| `--no-open-tv` | | Do not launch Edge. Open `http://localhost:8080/tv` and `/control` yourself. |
 
 Build the web pages first with `npm install` and `npm run build` in `web/`. Without them the server still runs and
 says the pages are missing.

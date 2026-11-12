@@ -82,10 +82,22 @@ export class Party {
     readonly phoneUrl = url.replace("localhost", lanAddress()),
   ) {}
 
-  async tv(): Promise<Page> {
-    const ctx = await this.browser.newContext({ viewport: { width: 1920, height: 1080 } });
+  /** On a 1920x1080 screen. A smaller `window` is a browser window rather than a kiosk filling the screen. */
+  async tv(window = { width: 1920, height: 1080 }): Promise<Page> {
+    const ctx = await this.browser.newContext({ viewport: window, screen: { width: 1920, height: 1080 } });
     const page = await ctx.newPage();
     await page.goto(`${this.url}/tv`);
+    return page;
+  }
+
+  /** The laptop control page: a mouse, a wide window, and the same controls as a phone. */
+  async control(name: string): Promise<Page> {
+    const ctx = await this.browser.newContext({ viewport: { width: 1600, height: 900 } });
+    const page = await ctx.newPage();
+    await page.goto(`${this.url}/control`);
+    await page.getByTestId("name-input").fill(name);
+    await page.getByTestId("name-submit").click();
+    await expect(page.getByTestId("tv-status")).toBeVisible();
     return page;
   }
 
@@ -128,7 +140,8 @@ export async function waitForTv(tv: Page, pred: (p: TvProbe) => boolean, label: 
 
 /** Queue a library song by searching its exact title. */
 export async function queueLibrary(phone: Page, title: string): Promise<void> {
-  await phone.getByTestId("tab-search").click();
+  // The control page shows search beside the other screens, with no tabs.
+  if ((await phone.getByTestId("tab-search").count()) > 0) await phone.getByTestId("tab-search").click();
   await phone.getByTestId("search-input").fill(title);
   const row = phone.getByTestId("library-result").filter({ hasText: title }).first();
   await row.getByTestId("queue-library").click();

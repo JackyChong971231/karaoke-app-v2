@@ -88,6 +88,15 @@ def test_random_pick_avoids_recent_fillers_until_none_are_left(lib: Library) -> 
     assert lib.random_pick({SongId(f"vid0000001{i}") for i in range(3)}) is not None
 
 
+def test_random_pick_rotates_when_every_song_was_played_lately(lib: Library) -> None:
+    for i in range(2):
+        put(lib, record(f"vid0000002{i}", f"t{i}", "UCa", ("A",)))
+    a, b = SongId("vid00000020"), SongId("vid00000021")
+    for _ in range(10):
+        assert lib.random_pick({a, b}, (a, b)).id == b  # type: ignore[union-attr]
+        assert lib.random_pick({a, b}, (b, a)).id == a  # type: ignore[union-attr]
+
+
 def test_empty_library_has_no_filler(lib: Library) -> None:
     assert lib.random_pick(()) is None
 

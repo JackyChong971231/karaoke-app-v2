@@ -1,5 +1,6 @@
 // Phone remote (index.html). Screens are thin: they read the store and call store.run(controlId, command).
 // Every interactive element carries a data-testid for the harness.
+// `desk` is the laptop control page: all three screens side by side instead of tabs.
 
 import type { JSX } from "react";
 import { useCallback, useMemo, useState } from "react";
@@ -21,7 +22,7 @@ import { Art, Icon, Sheet, Spinner } from "./ui";
 
 type Tab = "now" | "queue" | "search";
 
-export function App(): JSX.Element {
+export function App(props: { desk?: boolean }): JSX.Element {
   const [identity, setIdentity] = useState<Identity | null>(loadIdentity);
   if (identity === null) {
     return (
@@ -34,27 +35,32 @@ export function App(): JSX.Element {
       />
     );
   }
-  return <Connected identity={identity} />;
+  return <Connected identity={identity} desk={props.desk === true} />;
 }
 
-function Connected(props: { identity: Identity }): JSX.Element {
+function Connected(props: { identity: Identity; desk: boolean }): JSX.Element {
   const store = useMemo(() => createPhoneStore(props.identity), [props.identity]);
   return (
     <StoreContext.Provider value={store}>
-      <Shell />
+      <Shell desk={props.desk} />
     </StoreContext.Provider>
   );
 }
 
-function Shell(): JSX.Element {
+function Shell(props: { desk: boolean }): JSX.Element {
+  const { desk } = props;
   const { view, link, toasts } = usePhone();
   const [tab, setTab] = useState<Tab>("now");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const goSearch = useCallback(() => { setTab("search"); }, []);
+  const goSearch = useCallback(() => {
+    if (desk) document.querySelector<HTMLInputElement>('[data-testid="search-input"]')?.focus();
+    else setTab("search");
+  }, [desk]);
   const queueCount = view?.queue.length ?? 0;
+  const shows = (t: Tab): boolean => desk || tab === t;
 
   return (
-    <div className="app">
+    <div className={`app ${desk ? "is-desk" : ""}`}>
       <TopBar onSettings={() => { setSettingsOpen(true); }} />
       {link === "connecting" && view !== null && (
         <div className="banner" data-testid="reconnecting">
@@ -62,22 +68,24 @@ function Shell(): JSX.Element {
         </div>
       )}
       <main className="screens">
-        <section className={`screen ${tab === "now" ? "is-active" : ""}`} aria-hidden={tab !== "now"}>
+        <section className={`screen ${shows("now") ? "is-active" : ""}`} aria-hidden={!shows("now")}>
           <NowPlaying onFindSong={goSearch} />
         </section>
-        <section className={`screen ${tab === "queue" ? "is-active" : ""}`} aria-hidden={tab !== "queue"}>
+        <section className={`screen ${shows("queue") ? "is-active" : ""}`} aria-hidden={!shows("queue")}>
           <Queue onFindSong={goSearch} />
         </section>
-        <section className={`screen ${tab === "search" ? "is-active" : ""}`} aria-hidden={tab !== "search"}>
+        <section className={`screen ${shows("search") ? "is-active" : ""}`} aria-hidden={!shows("search")}>
           <PhoneSearch />
         </section>
       </main>
-      {tab !== "now" && view?.now != null && <MiniPlayer now={view.now} onOpen={() => { setTab("now"); }} />}
-      <nav className="tabbar" aria-label="Sections">
-        <TabButton tab="now" current={tab} onSelect={setTab} icon="mic" label="Now playing" />
-        <TabButton tab="queue" current={tab} onSelect={setTab} icon="queue" label="Queue" badge={queueCount} />
-        <TabButton tab="search" current={tab} onSelect={setTab} icon="search" label="Search" />
-      </nav>
+      {!desk && tab !== "now" && view?.now != null && <MiniPlayer now={view.now} onOpen={() => { setTab("now"); }} />}
+      {!desk && (
+        <nav className="tabbar" aria-label="Sections">
+          <TabButton tab="now" current={tab} onSelect={setTab} icon="mic" label="Now playing" />
+          <TabButton tab="queue" current={tab} onSelect={setTab} icon="queue" label="Queue" badge={queueCount} />
+          <TabButton tab="search" current={tab} onSelect={setTab} icon="search" label="Search" />
+        </nav>
+      )}
       <div className="toasts" aria-live="polite">
         {toasts.map((t) => (
           <div key={t.id} className={`toast toast-${t.tone}`} data-testid="toast">

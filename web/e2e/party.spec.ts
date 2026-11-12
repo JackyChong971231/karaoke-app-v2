@@ -126,3 +126,49 @@ test("TV reload resumes the same play at its position", async ({ party }) => {
   const resumed = await waitForTv(tv, (x) => !x.paused && x.audible > before.audible + 0.3, "resumed forward");
   expect(resumed.playId).toBe(paused.playId);
 });
+
+test("the vocal switch turns the vocal off and back to its level", async ({ party }) => {
+  const tv = await party.tv();
+  await waitForTv(tv, (x) => x.stage.kind === "playing", "filler started");
+  const phone = await party.phone("Alice");
+  await phone.getByTestId("vocal-slider").fill("40");
+  await waitForTv(tv, (x) => Math.abs(x.vocalGain - 0.4) < 0.001, "vocal gain 0.4 on TV");
+
+  await phone.getByTestId("vocal-toggle").click();
+  await expect(phone.getByTestId("vocal-toggle")).toHaveAttribute("aria-checked", "false");
+  await waitForTv(tv, (x) => x.vocalGain === 0, "vocal off on TV");
+  await expect(tv.getByTestId("tv-vocal")).toHaveText(/Vocal\s*Off/);
+  await phone.getByTestId("vocal-toggle").click();
+  await expect(phone.getByTestId("vocal-value")).toHaveText(/40%/);
+  await waitForTv(tv, (x) => Math.abs(x.vocalGain - 0.4) < 0.001, "vocal back to 0.4 on TV");
+  await expect(tv.getByTestId("tv-vocal")).toHaveText(/Vocal\s*40%/);
+
+  await expect(tv.getByTestId("tv-key")).toHaveText(/Key\s*Original/);
+  await phone.getByTestId("key-down").click();
+  await expect(tv.getByTestId("tv-key")).toHaveText(/Key\s*-1/);
+});
+
+test("the control page shows every screen at once and drives the TV with the mouse", async ({ party }) => {
+  const tv = await party.tv();
+  await waitForTv(tv, (x) => x.stage.kind === "playing", "filler started");
+  const control = await party.control("Host");
+  await expect(control.getByTestId("now-playing")).toBeVisible();
+  await expect(control.getByTestId("search-input")).toBeVisible();
+  await expect(control.getByTestId("tab-now")).toHaveCount(0);
+
+  await control.getByTestId("pause").click();
+  await waitForTv(tv, (x) => x.paused, "paused from the control page");
+  await queueLibrary(control, "Morning Sun");
+  await expect(control.getByTestId("queue-row-title")).toHaveText(["Morning Sun"]);
+});
+
+test("the TV shows a full-screen button when the mouse moves", async ({ party }) => {
+  // A kiosk window that fills the screen shows no button, so this is an ordinary window.
+  const tv = await party.tv({ width: 1280, height: 720 });
+  const button = tv.getByTestId("tv-fullscreen");
+  await expect(button).not.toHaveClass(/is-active/);
+  await tv.mouse.move(200, 200);
+  await tv.mouse.move(220, 210);
+  await expect(button).toHaveClass(/is-active/);
+  await expect(button).toHaveAttribute("aria-label", "Full screen");
+});

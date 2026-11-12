@@ -63,7 +63,7 @@ TV --clock (4 Hz telemetry)--> Hub --> phones        (never reduced)
 - **Identity.** `PlayId` increases each time a song starts. Pause, skip, key, and track-ended carry it. A stale `PlayId` is rejected, so a double skip advances one song. Setters are absolute, never toggles.
 - **Fairness.** `round = sung tonight + queued + 1`, fixed when the entry is added. A song counts as sung when it starts. A new entry goes right after the last entry with a smaller `(round, join index)`. Manual moves are never undone.
 - **Turn order.** Start the first ready entry in queue order. If none is ready, play a filler.
-- **Filler.** A random library song not played in the last 20 fillers. It is `Playing(origin=Filler())`, not a queue entry. A newly ready queue song does not interrupt it.
+- **Filler.** A random library song not played in the last 20 fillers. When every library song is among them, the one played longest ago, so a small library rotates. A TV that fails to load a song waits 3 s before reporting it. It is `Playing(origin=Filler())`, not a queue entry. A newly ready queue song does not interrupt it.
 - **Restart.** A non-empty saved queue opens a keep-or-new prompt. The first answer wins. Keep renumbers rounds and join order from the kept order. Queue edits wait for the answer.
 - **TV.** The TV converges to the `TvView` it receives. It loads only when `PlayId` changes. After a reload it resumes at the last reported position for that `PlayId`. The audible clock is `inputTime - (stretch latency + baseLatency + outputLatency)` and holds the seek target until a fresh update arrives.
 - **Preparation.** Steps run fetch, separate, lyrics, install. Each output is written as `.part` and renamed. Install moves the staging folder into the library with one rename. Two downloads run at once. One accelerator child process runs Demucs and Whisper, on CUDA when present, else CPU at below-normal priority. Party demand comes before import demand.
@@ -85,6 +85,7 @@ web/src/
   wire/                             generated contract, socket
   tv/                               audio engine and clock, lyrics, reconcile, page
   phone/                            store, pick-a-video flow, labels, screens
+  control/                          laptop control page: the phone screens side by side (App desk)
   import/                           import review page
 ```
 
@@ -107,7 +108,7 @@ The user asked for an unattended build, so these were decided and reported, not 
 - Vocal level persists across songs. Key resets to 0 for each new song.
 - Queue edits wait while the restart prompt is open.
 - A queue with no ready songs plays a filler.
-- `karaoke serve` opens the TV page in Edge with the autoplay flag. A page opened by hand shows a one-time **Start** button.
+- `karaoke serve` opens the TV page in Edge with the autoplay flag, in kiosk mode on the second screen, and the control page maximized on the main screen (`shell/screens.py`). With one screen both open as plain windows. A page opened by hand shows a one-time **Start** button.
 - v1 songs with a `meta.json` URL use that video ID. Others are found by search and confirmed on the review page.
 
 ## Tradeoffs accepted

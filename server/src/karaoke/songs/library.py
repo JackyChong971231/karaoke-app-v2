@@ -26,7 +26,7 @@ import sqlite3
 import threading
 import time
 import unicodedata
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -225,10 +225,14 @@ class Library:
         songs.sort(key=lambda r: r.meta.title)
         return ArtistEntry(songs[0].meta.artist, names, tuple(r.meta for r in songs))
 
-    def random_pick(self, avoid: Collection[SongId]) -> SongMeta | None:
-        """A random song outside `avoid`; any song when `avoid` covers the whole library."""
+    def random_pick(self, avoid: Collection[SongId], recent: Sequence[SongId] = ()) -> SongMeta | None:
+        """A random song outside `avoid`. When `avoid` covers the whole library, the song that is oldest in
+        `recent` (newest first), so two songs alternate rather than one repeating."""
         rows = self._q("SELECT id, record FROM songs ORDER BY random()")
-        fresh = [r for r in rows if r[0] not in avoid] or rows
+        fresh = [r for r in rows if r[0] not in avoid]
+        if not fresh:
+            age = {s: i for i, s in enumerate(recent)}
+            fresh = sorted(rows, key=lambda r: -age.get(r[0], len(recent)))
         return SongRecord.from_json(json.loads(fresh[0][1])).meta if fresh else None
 
     def media_path(self, song: SongId, file: MediaFile) -> Path | None:

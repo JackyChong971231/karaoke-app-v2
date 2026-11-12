@@ -66,4 +66,9 @@ test("screenshots of the TV and phone pages", async ({ party, browser }) => {
   await bob.getByTestId("tab-now").click();
   await bob.waitForTimeout(300);
   await shot(bob, "phone-at-tv-width-1920");
+
+  const control = await party.control("Host");
+  await control.getByTestId("search-input").fill("a");
+  await control.waitForTimeout(800);
+  await shot(control, "control-1600");
 });

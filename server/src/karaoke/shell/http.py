@@ -47,7 +47,7 @@ log = logging.getLogger(__name__)
 IMPORT_FIRST_BATCH = 20
 _MEDIA_FILES: frozenset[str] = frozenset(get_args(MediaFile))
 _MEDIA_TYPES = {".mp4": "video/mp4", ".opus": "audio/ogg", ".json": "application/json"}
-_PAGES = {"/": "index.html", "/tv": "tv.html", "/import": "import.html"}
+_PAGES = {"/": "index.html", "/control": "control.html", "/tv": "tv.html", "/import": "import.html"}
 
 
 @dataclass

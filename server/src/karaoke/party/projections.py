@@ -52,6 +52,9 @@ class FillerRequest:
     """= state.next_play_id. Changes whenever any song starts, which invalidates stale picks."""
     avoid: frozenset[SongId]
     """recent_fillers plus every queued song, so a filler never pre-empts someone's pick."""
+    recent: tuple[SongId, ...]
+    """recent_fillers, newest first. When `avoid` covers the whole library, the pick falls back to the
+    song played longest ago, so a small library rotates instead of repeating one song."""
 
 
 def filler_request(state: PartyState) -> FillerRequest | None:
@@ -65,4 +68,4 @@ def filler_request(state: PartyState) -> FillerRequest | None:
     if any(e.song.id in state.ready for e in state.queue):
         return None
     avoid = frozenset(state.recent_fillers) | {e.song.id for e in state.queue}
-    return FillerRequest(token=state.next_play_id, avoid=avoid)
+    return FillerRequest(token=state.next_play_id, avoid=avoid, recent=state.recent_fillers)

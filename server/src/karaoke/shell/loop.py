@@ -129,7 +129,7 @@ class PartyLoop:
             attempt = (req.token, self._library.count())
             if attempt != self._last_filler_attempt:
                 self._last_filler_attempt = attempt
-                song = self._library.random_pick(req.avoid)
+                song = self._library.random_pick(req.avoid, req.recent)
                 if song is not None:
                     self.submit(FillerPicked(req.token, song))
 

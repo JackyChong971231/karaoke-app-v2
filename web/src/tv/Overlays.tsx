@@ -46,6 +46,7 @@ export function Overlays(props: {
       {view !== null && <SideRail view={view} showQr={play !== null} />}
       {view?.restartOffer != null && <RestartPrompt offer={view.restartOffer} socket={socket} />}
       {link === "connecting" && <div className="tv-pill tv-reconnect">Reconnecting to the laptop…</div>}
+      <FullscreenButton />
       {needsGesture && (
         <button
           className="tv-fullscreen tv-center tv-start"
@@ -71,6 +72,63 @@ function useNeedsGesture(engine: AudioEngine): boolean {
     return () => { window.clearTimeout(t); };
   }, [engine]);
   return needs;
+}
+
+const POINTER_IDLE_MS = 2500;
+
+/** Bottom-left, like a video player. Shows while the mouse moves; hidden when a kiosk window already fills the
+ *  screen, since there is nothing to enlarge. Double-click or F toggles too. */
+function FullscreenButton(): JSX.Element | null {
+  const [active, setActive] = useState(false);
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    let timer = 0;
+    const wake = (): void => {
+      setActive(true);
+      document.body.classList.add("is-pointer");
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        setActive(false);
+        document.body.classList.remove("is-pointer");
+      }, POINTER_IDLE_MS);
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "f" || e.key === "F") toggleFullscreen();
+    };
+    const rerender = (): void => { setTick((n) => n + 1); };
+    window.addEventListener("pointermove", wake);
+    window.addEventListener("dblclick", toggleFullscreen);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", rerender);
+    document.addEventListener("fullscreenchange", rerender);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("pointermove", wake);
+      window.removeEventListener("dblclick", toggleFullscreen);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", rerender);
+      document.removeEventListener("fullscreenchange", rerender);
+    };
+  }, []);
+  const isFull = document.fullscreenElement !== null;
+  const fillsScreen = window.innerWidth >= screen.width && window.innerHeight >= screen.height;
+  if (!isFull && fillsScreen) return null;
+  return (
+    <button
+      className={`tv-fs ${active ? "is-active" : ""}`}
+      data-testid="tv-fullscreen"
+      aria-label={isFull ? "Exit full screen" : "Full screen"}
+      title={isFull ? "Exit full screen (F)" : "Full screen (F)"}
+      onClick={toggleFullscreen}
+    >
+      {isFull ? <ExitFullscreenGlyph /> : <FullscreenGlyph />}
+    </button>
+  );
+}
+
+function toggleFullscreen(): void {
+  if (document.fullscreenElement !== null) void document.exitFullscreen().catch(() => undefined);
+  else void document.documentElement.requestFullscreen().catch(() => undefined);
 }
 
 function PlayingChrome(props: { play: TvPlay; stage: Stage }): JSX.Element {
@@ -100,16 +158,11 @@ function PlayingChrome(props: { play: TvPlay; stage: Stage }): JSX.Element {
             </>
           )}
         </div>
-        {(play.lyricsFlagged || play.semitones !== 0) && (
+        {play.lyricsFlagged && (
           <div className="tv-badges">
-            {play.lyricsFlagged && (
-              <span className="tv-badge tv-badge-warn" data-testid="tv-lyrics-flagged">
-                Lyrics may be wrong
-              </span>
-            )}
-            {play.semitones !== 0 && (
-              <span className="tv-badge">Key {play.semitones > 0 ? `+${String(play.semitones)}` : play.semitones}</span>
-            )}
+            <span className="tv-badge tv-badge-warn" data-testid="tv-lyrics-flagged">
+              Lyrics may be wrong
+            </span>
           </div>
         )}
       </div>
@@ -137,6 +190,7 @@ function SideRail(props: { view: TvView; showQr: boolean }): JSX.Element {
   const { view, showQr } = props;
   return (
     <div className="tv-rail">
+      {view.play !== null && <SettingsChips vocalLevel={view.vocalLevel} semitones={view.play.semitones} />}
       {showQr && (
         <div className="tv-qr-card" data-testid="tv-qr">
           <Qr url={view.joinUrl} size="15vh" />
@@ -144,6 +198,26 @@ function SideRail(props: { view: TvView; showQr: boolean }): JSX.Element {
         </div>
       )}
       {view.upNext !== null && showQr && <UpNextCard next={view.upNext} />}
+    </div>
+  );
+}
+
+/** Always on while a song plays. A chip is keyed by its value, so it remounts and pulses when the value changes. */
+function SettingsChips(props: { vocalLevel: number; semitones: number }): JSX.Element {
+  const pct = Math.round(props.vocalLevel * 100);
+  const key = props.semitones;
+  return (
+    <div className="tv-settings" data-testid="tv-settings">
+      <div key={`v${String(pct)}`} className={`tv-chip ${pct === 0 ? "is-off" : ""}`} data-testid="tv-vocal">
+        {pct === 0 ? <MicOffGlyph /> : <MicGlyph />}
+        <span className="tv-chip-label">Vocal</span>
+        <span className="tv-chip-value">{pct === 0 ? "Off" : `${String(pct)}%`}</span>
+      </div>
+      <div key={`k${String(key)}`} className={`tv-chip ${key !== 0 ? "is-changed" : ""}`} data-testid="tv-key">
+        <NoteGlyph />
+        <span className="tv-chip-label">Key</span>
+        <span className="tv-chip-value">{key === 0 ? "Original" : key > 0 ? `+${String(key)}` : String(key)}</span>
+      </div>
     </div>
   );
 }
@@ -277,10 +351,45 @@ function MicGlyph(): JSX.Element {
   );
 }
 
+function MicOffGlyph(): JSX.Element {
+  return (
+    <svg className="tv-glyph" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M19 11h-2a5 5 0 0 1-.6 2.4l1.5 1.5A7 7 0 0 0 19 11ZM15 11V5a3 3 0 0 0-5.9-.8L15 10.1V11ZM3.3 2.9 1.9 4.3 9 11.4V11a3 3 0 0 0 4.2 2.7l1.5 1.5A5 5 0 0 1 7 11H5a7 7 0 0 0 6 6.9V21h2v-3.1a7 7 0 0 0 3.2-1.3l3.5 3.5 1.4-1.4Z"
+      />
+    </svg>
+  );
+}
+
+function NoteGlyph(): JSX.Element {
+  return (
+    <svg className="tv-glyph" viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="currentColor" d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6Z" />
+    </svg>
+  );
+}
+
 function PlayGlyph(): JSX.Element {
   return (
     <svg className="tv-glyph" viewBox="0 0 24 24" aria-hidden="true">
       <path fill="currentColor" d="M8 5.14v13.72a1 1 0 0 0 1.52.85l10.9-6.86a1 1 0 0 0 0-1.7L9.52 4.29A1 1 0 0 0 8 5.14Z" />
+    </svg>
+  );
+}
+
+function FullscreenGlyph(): JSX.Element {
+  return (
+    <svg className="tv-glyph" viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="currentColor" d="M4 4h6v2H6v4H4zm10 0h6v6h-2V6h-4zM4 14h2v4h4v2H4zm14 0h2v6h-6v-2h4z" />
+    </svg>
+  );
+}
+
+function ExitFullscreenGlyph(): JSX.Element {
+  return (
+    <svg className="tv-glyph" viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="currentColor" d="M8 4h2v6H4V8h4zm6 0h2v4h4v2h-6zM4 14h6v6H8v-4H4zm10 0h6v2h-4v4h-2z" />
     </svg>
   );
 }

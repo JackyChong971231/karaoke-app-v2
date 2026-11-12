@@ -1,6 +1,6 @@
 # Product spec
 
-Status: Approved 2026-11-11. Amended the same day with the user's music video decisions.
+Status: Approved 2026-11-11. Amended the same day with the user's music video decisions, and again with the control page, start-up windows, TV full-screen button, filler rotation, and vocal switch.
 
 ## Goal
 
@@ -25,6 +25,12 @@ Laptop --USB audio interface---> Mixer <---- wireless microphones
 - **Singer.** One phone is one singer. On first visit the phone asks for a name and remembers it. The singer can change the name later.
 - **TV player.** A full-screen page on the laptop, shown on the TV. It plays the song, shows the lyrics, and shows the QR code.
 - **Phone remote.** A web page opened by scanning the QR code. Anyone on the Wi-Fi who scans it can control the app. There is no PIN.
+- **Control page.** A page on the laptop's own screen, used with the mouse. It has the same controls as the phone remote. The laptop drives the TV as an extended screen, so the control page shows only on the laptop and the TV page shows only on the TV. It shows now playing, the queue, and search side by side. Assumption: the control page asks for a name once, like a phone, and counts as one more singer.
+
+### Start the app
+
+- On start, the app opens the TV page full screen on the second screen and the control page on the main screen.
+- Assumption: with only one screen, both pages open as ordinary windows, so the laptop is never trapped behind a full-screen TV page. The TV page's full-screen button enlarges it.
 
 Every singer has the same powers. There is no host role.
 
@@ -37,6 +43,7 @@ The remote must look and feel like a finished product, not a DIY tool.
 - Pause and resume.
 - Skip to the next song.
 - Set the original vocal volume with a slider, from off to full.
+- Turn the original vocal off or on with one switch beside the slider. Turning it on restores the level it had. Assumption: if it was never on, it turns on at full.
 - Change the key up or down in semitones.
 
 ### See the queue
@@ -62,6 +69,14 @@ The remote must look and feel like a finished product, not a DIY tool.
 - A line never overflows the lyrics area or overlaps the other line, however long it is.
 - Chinese lyrics always show in Traditional script.
 
+### Enlarge the picture
+
+- A full-screen button sits at the bottom left, like YouTube. It shows when the mouse moves and hides when the mouse rests. Assumption: double-click and the F key also toggle full screen, and the button hides when the window already fills the screen.
+
+### Show the vocal and key settings
+
+- While a song plays, the TV always shows the guide vocal level and the key. Assumption: two chips at the top right, above the QR code, reading for example "Vocal 35%" or "Vocal Off", and "Key +1" or "Key Original". A chip pulses when its value changes, and a changed key is highlighted.
+
 ### Show the queue state
 
 - The QR code stays visible so new guests can join.
@@ -71,6 +86,8 @@ The remote must look and feel like a finished product, not a DIY tool.
 
 When the queue is empty, the TV plays random library songs with video, sound, and lyrics, so anyone can join in and sing at any time.
 
+- Filler songs are picked at random from the entire library. A song does not come back until 20 other fillers have played, or until every library song has played since it did. The same song never plays twice in a row while the library has two or more songs.
+- If a filler song fails to play, the TV shows that for 3 seconds before moving on, so a broken song cannot flash past in a loop.
 - A filler song plays like a queued song. Singers can pause it, skip it, set the vocal volume, and change the key.
 - A filler song is not in the queue, has no singer, and does not count toward fairness.
 - Assumption: when someone queues a song during a filler song, the filler song plays to its end and the queued song follows. Any singer can skip the filler song to start the queued song at once.

@@ -31,6 +31,7 @@ interface Loaded {
 }
 
 const VIDEO_DRIFT_S = 0.15;
+const FAILED_HOLD_MS = 3000;
 
 export class TvReconciler {
   private loaded: Loaded | null = null;
@@ -126,6 +127,10 @@ export class TvReconciler {
     } catch (e) {
       if (signal.aborted) return;
       this.deps.onStage({ kind: "failed", playId: play.playId });
+      // Hold the message on screen before moving on. Without the pause, a song that fails every time turns into
+      // a tight fail-and-retry loop.
+      await new Promise((resolve) => setTimeout(resolve, FAILED_HOLD_MS));
+      if (this.loaded !== loaded) return;
       this.deps.send({ kind: "trackFailed", playId: play.playId, reason: e instanceof Error ? e.message : String(e) });
     }
   }

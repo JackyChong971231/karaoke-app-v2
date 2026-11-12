@@ -147,6 +147,9 @@ function VocalCard(props: { level: number }): JSX.Element {
   const { pending } = usePhone();
   const [drag, setDrag] = useState<number | null>(null);
   const lastSent = useRef(0);
+  // The switch turns the vocal off and back on at the level it had, or full if it was never on here.
+  const restoreTo = useRef(props.level > 0 ? props.level : 1);
+  if (props.level > 0 && drag === null) restoreTo.current = props.level;
   const shown = drag ?? props.level;
   const send = (level: number): void => {
     lastSent.current = performance.now();
@@ -160,8 +163,24 @@ function VocalCard(props: { level: number }): JSX.Element {
         <span className="card-title">
           <Icon name={shown === 0 ? "vocalOff" : "mic"} size={18} /> Guide vocal
         </span>
-        <span className="card-value" data-testid="vocal-value">
-          {busy && <Spinner size={12} />} {pct === 0 ? "Off" : `${String(pct)}%`}
+        <span className="card-head-right">
+          <span className="card-value" data-testid="vocal-value">
+            {busy && <Spinner size={12} />} {pct === 0 ? "Off" : `${String(pct)}%`}
+          </span>
+          <button
+            type="button"
+            role="switch"
+            className="switch"
+            data-testid="vocal-toggle"
+            aria-checked={shown > 0}
+            aria-label="Guide vocal on or off"
+            onClick={() => {
+              setDrag(null);
+              send(shown > 0 ? 0 : restoreTo.current);
+            }}
+          >
+            <span className="switch-knob" />
+          </button>
         </span>
       </div>
       <input
