@@ -93,7 +93,9 @@ The user's words: more ways to find songs than the search box, like a karaoke ap
 The search screen opens on a browse page with these ways in:
 
 - **Search box.** As today.
-- **By region.** One box per region: 粵語, 國語, 歐美, 日語, 韓語. Tapping a box shows popular songs of that region from YouTube Music's own charts and playlists, and the library songs whose singer is from that region, marked ready.
+- **By region.** One box per place: 香港, 台灣, 中國, 日本, 韓國, 歐美. The user asked for 香港, 中國, and 台灣 to be listed separately. Tapping a box shows popular songs from that place, and the library songs whose singer is from that place, marked ready.
+- A singer's place is where the singer is from, not the language of the song. For example, 鄧紫棋 (G.E.M.) is under 香港 even when she sings in Mandarin.
+- Assumption: the app guesses each singer's place, and the laptop control page lets the user correct a wrong one. The correction is kept.
 - **By singer.** A grid of singers with photos, grouped by region. Tapping a singer shows their songs.
 - **My favourites.** See below.
 - Assumption: also a **Ready to sing** box listing every library song, newest first, since those start at once.

@@ -164,7 +164,8 @@ These implement the product spec's sections marked "added 2026-11-12".
 
 ### Settings sync
 
-- The server stays the only owner of the vocal level, the vocal switch, and the key. Setters stay absolute.
+- The server stays the only owner of the vocal level, the vocal switch, and the key.
+- The key buttons send a step, "up one" or "down one", not a target key. A phone that has not yet received another phone's change then cannot move the key back. Reset still sends 0. Two phones pressing up at the same moment raise the key by two, and every screen shows the result.
 - The level the switch restores moves from the phone to the server: `Settings` gains `vocal_restore`, the last level above zero. Every phone then restores the same level.
 - The phone slider sends only while the singer drags, and once at the end of the drag if the value changed. It ends a drag on `pointerup`, `pointercancel`, and `lostpointercapture`, so a touch that turns into a scroll cannot leave a stale local value. While not dragging, it shows the server's value only.
 - A phone sends nothing on reconnect except its hello.
@@ -178,10 +179,27 @@ These implement the product spec's sections marked "added 2026-11-12".
 
 ### Browse
 
-- **Regions.** Each region box maps to YouTube Music genre playlists, read with `get_mood_categories` and `get_mood_playlists`, plus the HK chart from `get_charts` for 粵語 and 國語. Assumption, to verify with a probe before building: the genre list includes Cantopop, Mandopop, J-Pop, K-Pop, and a Western pop entry in region `HK`. If a region has no genre playlist, its box shows a fixed search such as "粵語 熱門" instead.
-- A region's results are cached for 6 hours in memory, so opening a box is quick.
-- Library songs get a region from their artist. Assumption: the artist's region is taken from the YouTube Music genre playlists the artist appears in, and an artist with none is left out of the region boxes but still appears under "By singer" and in search.
-- **Singers.** The grid shows library artists and the artists from the region's charts, with the photo from `get_artist`. Photos are cached on disk in the app data folder.
+- **What YouTube Music offers, probed 2026-11-12 in region `HK`.**
+  - Genres (`get_mood_categories`) have 日本流行音樂, K-Pop, and Pop, but 粵語 and 國語 share one genre, 華語與粵語流行樂. `get_mood_playlists` crashed on one entry. Genres are not used.
+  - `get_charts("HK")` returns three video charts (Trending 20, Daily Top, Top 100 Music Videos) and the top 40 artists, mixed across regions.
+  - Playlist search works with language `en` and returns nothing with `zh_TW`, like song search. Each region search returns label and chart playlists, for example warnermusichk's 最新熱門廣東歌, Sony Music Taiwan's 華語中文流行熱門歌曲合輯, and Sony Music Japan's J-pop list, mixed with fan-made lists.
+- Per-country charts, probed the same day: `get_charts` returns a Top 100 Music Videos chart and the top 40 artists for `HK`, `TW`, `JP`, `KR`, and `US`. For `CN` it returns only the global chart, because YouTube is blocked in mainland China. The `TW` artists include G.E.M. and JJ Lin, so a chart says where a singer is popular, not where they are from.
+- **Places.** Each place box is a page of shelves:
+
+  | Box | First shelf | Other shelves, from playlist search |
+  | --- | --- | --- |
+  | 香港 | HK Top 100 Music Videos | "粵語 熱門", "Cantopop 90s" |
+  | 台灣 | TW Top 100 Music Videos | "台灣 華語 熱門", "KKBOX 華語" |
+  | 中國 | none: no chart exists | "中國大陸 流行歌曲", "抖音 熱歌" |
+  | 日本 | JP Top 100 Music Videos | "J-Pop" |
+  | 韓國 | KR Top 100 Music Videos | "K-Pop" |
+  | 歐美 | US Top 100 Music Videos | "Pop hits" |
+
+  Playlists by record labels and chart owners, such as KKBOX or Sony Music, are preferred over fan-made lists. Songs on a shelf go through the same song identity rules as search results, so titles and artists stay clean. Every chart and HK, TW, and mainland list mixes in singers from elsewhere. So a shelf keeps only songs whose singer belongs to that box. Assumption: a song on a shelf whose singer has no known place stays on the shelf it came from.
+- A place's shelves are cached for 6 hours in memory, so opening a box is quick.
+- **A singer's place.** Charts cannot tell where a singer is from, so the app looks it up once on Wikidata, by the singer's name and alternate names: country of citizenship, or for a group, country of origin. Hong Kong, Taiwan, and mainland China are separate places there. A singer Wikidata cannot place gets the box whose shelves they appear on most. The control page lets the user correct any singer's place. Places and corrections are saved in `artist-places.json` in the app data folder. Library songs take their singer's place.
+- Assumption: Wikidata is reachable from the laptop and needs no key. If it is down, the app uses the shelf guess, and looks the singer up again on the next start.
+- **Singers.** Each place page ends with a grid of that place's singers, with the photo from `get_artist`. Photos are cached on disk in the app data folder.
 - **Ready to sing.** Every library song, newest first.
 
 ### Favourites
