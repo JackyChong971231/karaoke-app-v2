@@ -161,9 +161,9 @@ export function PlacePage(props: {
               <h3 className="section-title">Singers</h3>
               <div className="singers" data-testid="singers">
                 {data.singers.map((s) => (
-                  <button key={s.artistId} className="singer" data-testid="singer" onClick={() => { props.onArtist(s.artistId, s.name); }}>
+                  <button key={s.artistId} className="artist-tile" data-testid="singer" onClick={() => { props.onArtist(s.artistId, s.name); }}>
                     {s.photoUrl === "" ? <Art title={s.name} size="md" /> : <Art src={s.photoUrl} title={s.name} size="md" />}
-                    <span className="singer-name">{s.name}</span>
+                    <span className="artist-tile-name">{s.name}</span>
                   </button>
                 ))}
               </div>

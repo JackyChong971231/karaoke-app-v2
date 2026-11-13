@@ -10,9 +10,18 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from karaoke import contract as c
-from karaoke.core import SongId, SongMeta
+from karaoke.core import SingerId, SongId, SongMeta
 from karaoke.party import AwaitingRestartChoice, Filler, FromQueue, PartyState, Playing
 from karaoke.songs.prepare import Device, PrepStatus
+
+LAPTOP = SingerId("net:laptop")
+"""Every browser on the laptop itself (the control page) is this one singer."""
+SYSTEM_NAME = "System"
+"""Songs the laptop queues show this singer name everywhere, not the name typed on the control page."""
+
+
+def shown_name(singer: SingerId, typed: str) -> str:
+    return SYSTEM_NAME if singer == LAPTOP else typed
 
 
 def song_view(song: SongMeta) -> c.SongView:
@@ -44,13 +53,13 @@ def _restart_offer(state: PartyState) -> c.RestartOfferView | None:
     if not isinstance(state.phase, AwaitingRestartChoice):
         return None
     offer = state.phase.offer
-    return c.RestartOfferView(entries=[song_view(e.song) for e in offer], singer_names=[e.singer_name for e in offer])
+    return c.RestartOfferView(entries=[song_view(e.song) for e in offer], singer_names=[shown_name(e.singer, e.singer_name) for e in offer])
 
 
 def _singer_name(state: PartyState, now: Playing) -> str | None:
     match now.origin:
         case FromQueue(entry):
-            return entry.singer_name
+            return shown_name(entry.singer, entry.singer_name)
         case Filler():
             return None
 
@@ -70,7 +79,7 @@ def phone_view(rev: int, state: PartyState, board: Mapping[SongId, PrepStatus], 
         queue=[
             c.EntryView(
                 entry_id=e.id, song=song_view(e.song), singer_id=e.singer,
-                singer_name=e.singer_name, readiness=readiness(e.song.id, state, board),
+                singer_name=shown_name(e.singer, e.singer_name), readiness=readiness(e.song.id, state, board),
             )
             for e in state.queue
         ],
@@ -96,7 +105,7 @@ def tv_view(rev: int, state: PartyState, resume_at: Mapping[int, float], join_ur
         vocal_level=state.settings.vocal_level,
         av_offset_s=state.settings.av_offset_s,
         up_next=c.UpNext(
-            title=first.song.title, singer_name=first.singer_name,
+            title=first.song.title, singer_name=shown_name(first.singer, first.singer_name),
             ready=first.song.id in state.ready,
         ) if first else None,
         join_url=join_url,

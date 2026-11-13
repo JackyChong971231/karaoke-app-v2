@@ -1,7 +1,7 @@
 // Small presentational pieces shared by the phone screens and the import page.
 
 import type { JSX } from "react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { thumbnailFor } from "../wire/http";
 import { assertNever } from "../wire/socket";
 import type { Readiness } from "../wire/types";
@@ -20,6 +20,7 @@ const PATHS = {
   check: "m9.5 16.6-4.3-4.3-1.4 1.4 5.7 5.7L21.2 7.7l-1.4-1.4z",
   close: "m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4z",
   back: "M15.7 5.7 14.3 4.3 6.6 12l7.7 7.7 1.4-1.4L9.4 12z",
+  chevronDown: "M7.4 8.6 6 10l6 6 6-6-1.4-1.4-4.6 4.6z",
   more: "M12 7a2 2 0 1 1 0-4 2 2 0 0 1 0 4Zm0 7a2 2 0 1 1 0-4 2 2 0 0 1 0 4Zm0 7a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z",
   grip: "M9 5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Zm6 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM9 10.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Zm6 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM9 16a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Zm6 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Z",
   up: "M12 4.6 4.3 12.3l1.4 1.4L11 8.4V20h2V8.4l5.3 5.3 1.4-1.4z",
@@ -182,5 +183,93 @@ export function Sheet(props: {
         {props.children}
       </div>
     </div>
+  );
+}
+
+/** Marquee speed and the still pause at each end, as a share of one sweep. */
+const MARQUEE_PX_PER_S = 32;
+
+/** One line of text. When it is too wide, it slides to its end and back, pausing at each end, so a long title
+ *  never takes a second line. With reduced motion it stays still and ends in "…". */
+export function Marquee(props: { text: string }): JSX.Element {
+  const outer = useRef<HTMLSpanElement>(null);
+  const inner = useRef<HTMLSpanElement>(null);
+  const [shift, setShift] = useState(0);
+  useLayoutEffect(() => {
+    const measure = (): void => {
+      const o = outer.current;
+      const i = inner.current;
+      if (o === null || i === null) return;
+      setShift(Math.max(0, Math.ceil(i.scrollWidth - o.clientWidth)));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    if (outer.current !== null) ro.observe(outer.current);
+    void document.fonts.ready.then(measure);
+    return () => { ro.disconnect(); };
+  }, [props.text]);
+  // The keyframes hold still for 20% at each end, so the sweep itself gets 60% of the cycle.
+  const seconds = Math.max(4, shift / MARQUEE_PX_PER_S / 0.6);
+  return (
+    <span
+      ref={outer}
+      className={`marquee ${shift > 0 ? "is-moving" : ""}`}
+      style={{ "--shift": `-${String(shift)}px`, "--dur": `${seconds.toFixed(2)}s` }}
+    >
+      <span ref={inner} className="marquee-text">
+        {props.text}
+      </span>
+    </span>
+  );
+}
+
+/** The "Lyrics may be wrong" mark. Tapping it explains why, in a sheet. */
+export function LyricsFlag(props: { look: "side" | "chip"; testId?: string }): JSX.Element {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        className={props.look === "side" ? "flag-side" : "chip chip-warn chip-button"}
+        data-testid={props.testId}
+        aria-haspopup="dialog"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen(true);
+        }}
+      >
+        {props.look === "side" ? (
+          <>
+            <span className="round round-sm flag-side-icon">
+              <Icon name="alert" size={20} />
+            </span>
+            <span className="round-label flag-side-label">
+              Lyrics may
+              <br />
+              be wrong
+            </span>
+          </>
+        ) : (
+          <>
+            <Icon name="alert" size={13} /> Lyrics may be wrong
+            <span className="flag-info" aria-hidden="true">?</span>
+          </>
+        )}
+      </button>
+      <Sheet
+        open={open}
+        onClose={() => { setOpen(false); }}
+        testId="lyrics-why"
+        title={<div className="sheet-heading">Why the lyrics may be wrong</div>}
+      >
+        <div className="why">
+          <p>No published lyrics were found for this song, so the app listened to the singing in the recording and wrote down the words it heard.</p>
+          <p>Like automatic captions, it can mishear words, especially with fast singing, mixed languages, or loud music over the voice. The timing still follows the singing.</p>
+          <button className="btn btn-block" data-testid="lyrics-why-close" onClick={() => { setOpen(false); }}>
+            Got it
+          </button>
+        </div>
+      </Sheet>
+    </>
   );
 }

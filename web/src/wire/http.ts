@@ -18,6 +18,7 @@ import type {
   LyricsDoc,
   SearchResponse,
   VideoChoiceResponse,
+  WhoAmIResponse,
 } from "./types";
 
 export class HttpError extends Error {
@@ -44,6 +45,8 @@ export const api = {
   artist: (artistId: string, signal: AbortSignal) => request<ArtistResponse>(`/api/artist/${q(artistId)}`, { signal }),
   browse: (_key: string, signal: AbortSignal) => request<BrowseResponse>("/api/browse", { signal }),
   place: (placeId: string, signal: AbortSignal) => request<PlaceResponse>(`/api/place/${q(placeId)}`, { signal }),
+  /** Whether this browser is on the laptop running the app, which never asks for a name. */
+  whoami: () => request<WhoAmIResponse>("/api/whoami"),
   ready: (_key: string, signal: AbortSignal) => request<ReadyResponse>("/api/ready", { signal }),
   /** Control page: where a singer is from. Null returns them to the app's guess. */
   setArtistPlace: (artistId: string, name: string, placeId: PlaceId | null) =>

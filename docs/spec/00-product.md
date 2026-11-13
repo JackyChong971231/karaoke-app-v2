@@ -31,10 +31,11 @@ The user's words: a 咪霸 might keep changing their name when adding songs, so 
 - Fairness counts songs per phone. Changing the name does not make a new singer.
 - Assumption: a phone is recognised by its address on the home Wi-Fi, not only by the ID the browser stores. Clearing the browser, opening a private tab, or switching to another browser on the same phone is still the same singer. A browser cannot read a true hardware ID, so the network address is the closest the app can get.
 - Assumption: the laptop control page counts as one singer, like one phone.
+- Songs picked on the laptop that runs the app show the singer as "System" on every screen, not the name typed there (added 2026-11-12, clarified the same day). The user's words: only the song picked from the laptop running the app will be System. When other users join with a laptop, they name themselves and the app shows that name. A guest's laptop counts as one singer, like a phone. Assumption: this covers the phone queue, now playing, the TV, and the restart offer. The control page still marks them as its own, so there they read "System (you)".
 - Assumption: each queued song shows the name the singer had when they queued it. A later rename does not change songs already in the queue.
 - **TV player.** A full-screen page on the laptop, shown on the TV. It plays the song, shows the lyrics, and shows the QR code.
 - **Phone remote.** A web page opened by scanning the QR code. Anyone on the Wi-Fi who scans it can control the app. There is no PIN.
-- **Control page.** A page on the laptop's own screen, used with the mouse. It has the same controls as the phone remote. The laptop drives the TV as an extended screen, so the control page shows only on the laptop and the TV page shows only on the TV. It shows now playing, the queue, and search side by side. Assumption: the control page asks for a name once, like a phone, and counts as one more singer.
+- **Control page.** A page on the laptop's own screen, used with the mouse. It has the same controls as the phone remote. The laptop drives the TV as an extended screen, so the control page shows only on the laptop and the TV page shows only on the TV. It shows now playing, the queue, and search side by side. It counts as one more singer, shown as "System". It never asks for a name, and its settings have no name field (changed 2026-11-12: the user asked why the app still asked for their name when started with the .cmd). Any page opened on the laptop running the app behaves the same way. A guest's own laptop is asked for a name, like a phone.
 
 ### Start the app
 
@@ -54,6 +55,16 @@ The remote must look and feel like a finished product, not a DIY tool.
 - Set the original vocal volume with a slider, from off to full.
 - Turn the original vocal off or on with one switch beside the slider. Turning it on restores the level it had. Assumption: if it was never on, it turns on at full.
 - Change the key up or down in semitones.
+
+### Now playing fits on one screen (added 2026-11-12)
+
+The user's words: make it easier to see and navigate, and fit everything on the now playing page into one screen. The singer should not need to scroll down to see the key change or the up next list.
+
+- On a phone, the now playing page shows the song, progress, pause and skip, guide vocal, key, and up next without scrolling.
+- Up next is collapsed by default. Collapsed, it still shows the next song and how many more are waiting. Assumption: the collapsed row shows the first song in the queue.
+- Opening up next shows the next few songs, and a "Load more" button shows more with each tap. Assumption: it opens to 3 songs, and each tap adds 5.
+- The song title takes one line. The user's words: when the song name is too long, it scrolls horizontally back and forth and only occupies one line, instead of multiple lines, to save space. Assumption: it pauses at each end, and it stays still for people who turned on reduced motion on their phone, showing "…" instead.
+- Assumption: "one screen" means a common phone size (about 375 by 667 points, iPhone SE, and larger) with the browser's toolbars showing. Opening up next or loading more may make the page scroll.
 
 ### Keep settings in sync (added 2026-11-12)
 
@@ -125,6 +136,10 @@ The search screen opens on a browse page with these ways in:
 ### Enlarge the picture
 
 - A full-screen button sits at the bottom left, like YouTube. It shows when the mouse moves and hides when the mouse rests. Assumption: double-click and the F key also toggle full screen, and the button hides when the window already fills the screen.
+
+### Show full song titles (added 2026-11-12)
+
+- The TV never clips a song title. Letters that hang below the line, like g, p, and y, show in full.
 
 ### Show the vocal and key settings
 
@@ -214,6 +229,7 @@ v2 designs out these failures:
 
 - If no lyrics text exists for a song, the app transcribes the vocals and plays the song with those lyrics.
 - The TV and the phone mark those lyrics as possibly wrong.
+- On the phone and the control page, the singer can tap the "Lyrics may be wrong" mark to learn why (added 2026-11-12). Assumption: a short panel explains that no published lyrics were found for the song, so the app wrote down the words it heard in the recording, and that it can mishear words, like automatic captions. The timing still follows the singing.
 
 ## Open questions
 

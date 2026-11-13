@@ -202,6 +202,10 @@ body.is-pointer {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* overflow:hidden (for the ellipsis) clips descenders like g and y at this tight line-height, worst with
+     CJK fallback fonts. Extend the clip box below the text without moving anything. */
+  padding-bottom: 0.2em;
+  margin-bottom: -0.2em;
 }
 
 .tv-now-meta {
@@ -386,6 +390,8 @@ body.is-pointer {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  padding-bottom: 0.2em;
+  margin-bottom: -0.2em;
 }
 
 .tv-next-singer {

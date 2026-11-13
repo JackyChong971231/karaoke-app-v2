@@ -479,6 +479,12 @@ class PlaceResponse(Wire):
     online_ok: bool
 
 
+class WhoAmIResponse(Wire):
+    is_laptop: bool
+    """True when the request comes from the laptop running the app. Its songs show as "System", so the page
+    skips asking for a name there. A guest's own laptop is false: it names itself like a phone."""
+
+
 class ReadyResponse(Wire):
     songs: list[LibrarySongHit]
     """Every library song, newest first."""
@@ -618,6 +624,7 @@ class Contract(Wire):
     browse: BrowseResponse
     place: PlaceResponse
     ready: ReadyResponse
+    whoami: WhoAmIResponse
     artist_place: ArtistPlaceRequest
     video_choice: VideoChoiceResponse
     favourites: FavouritesResponse

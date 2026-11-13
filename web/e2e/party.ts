@@ -90,13 +90,12 @@ export class Party {
     return page;
   }
 
-  /** The laptop control page: a mouse, a wide window, and the same controls as a phone. */
-  async control(name: string): Promise<Page> {
+  /** The laptop control page: a mouse, a wide window, and the same controls as a phone. It is the laptop running
+   *  the app, so it never asks for a name; its songs show as "System". */
+  async control(): Promise<Page> {
     const ctx = await this.browser.newContext({ viewport: { width: 1600, height: 900 } });
     const page = await ctx.newPage();
     await page.goto(`${this.url}/control`);
-    await page.getByTestId("name-input").fill(name);
-    await page.getByTestId("name-submit").click();
     await expect(page.getByTestId("tv-status")).toBeVisible();
     return page;
   }

@@ -157,7 +157,7 @@ test("browse by place: 香港 熱門 shelves, its singers, and Ready to sing", a
 });
 
 test("the control page corrects where a singer is from", async ({ party }) => {
-  const control = await party.control("Host");
+  const control = await party.control();
   await control.getByTestId("box-hk").click();
   await expect(control.getByTestId("shelf").first()).toContainText("測試之歌");
   await control.getByTestId("singer").filter({ hasText: "測試歌手" }).click();
@@ -339,7 +339,7 @@ test("two phones and the TV always agree on the vocal and the key", async ({ par
 test("the control page shows every screen at once and drives the TV with the mouse", async ({ party }) => {
   const tv = await party.tv();
   await waitForTv(tv, (x) => x.stage.kind === "playing", "filler started");
-  const control = await party.control("Host");
+  const control = await party.control();
   await expect(control.getByTestId("now-playing")).toBeVisible();
   await expect(control.getByTestId("search-input")).toBeVisible();
   await expect(control.getByTestId("tab-now")).toHaveCount(0);
@@ -348,6 +348,8 @@ test("the control page shows every screen at once and drives the TV with the mou
   await waitForTv(tv, (x) => x.paused, "paused from the control page");
   await queueLibrary(control, "Morning Sun");
   await expect(control.getByTestId("queue-row-title")).toHaveText(["Morning Sun"]);
+  await expect(control.getByTestId("queue-row-singer")).toHaveText(["System (you)"], { useInnerText: true });
+  await expect(control.getByTestId("name-input")).toHaveCount(0);
 });
 
 test("the TV shows a full-screen button when the mouse moves", async ({ party }) => {

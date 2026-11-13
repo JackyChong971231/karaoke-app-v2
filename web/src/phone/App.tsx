@@ -23,9 +23,33 @@ import { Art, Icon, Sheet, Spinner } from "./ui";
 
 type Tab = "now" | "queue" | "search";
 
+/** The laptop running the app shows its songs as "System", so the name it would type is never seen. */
+const HOST_NAME = "System";
+/** The server's singer ID for the laptop running the app (`LAPTOP` in server/src/karaoke/shell/views.py). */
+const HOST_SINGER = "net:laptop";
+
 export function App(props: { desk?: boolean }): JSX.Element {
   const [identity, setIdentity] = useState<Identity | null>(loadIdentity);
+  // Asked only when there is no saved name: null while the server answers whether this is the host laptop.
+  const [askName, setAskName] = useState<boolean | null>(identity === null ? null : false);
+  useEffect(() => {
+    if (identity !== null) return undefined;
+    let live = true;
+    api.whoami().then(
+      (r) => {
+        if (!live) return;
+        if (r.isLaptop) {
+          const id = { browserId: newBrowserId(), name: HOST_NAME };
+          saveIdentity(id);
+          setIdentity(id);
+        } else setAskName(true);
+      },
+      () => { if (live) setAskName(true); },
+    );
+    return () => { live = false; };
+  }, [identity]);
   if (identity === null) {
+    if (askName !== true) return <div className="gate" data-testid="gate-checking" />;
     return (
       <NameGate
         onDone={(id) => {
@@ -86,7 +110,8 @@ function Shell(props: { desk: boolean }): JSX.Element {
           <TabButton tab="search" current={tab} onSelect={setTab} icon="search" label="Search" />
         </nav>
       )}
-      <div className="toasts" aria-live="polite">
+      {/* The mini player shows on every tab but Now playing; there, toasts sit lower so they never cover the key. */}
+      <div className={`toasts ${!desk && tab === "now" ? "is-low" : ""}`} aria-live="polite">
         {toasts.map((t) => (
           <div key={t.id} className={`toast toast-${t.tone}`} data-testid="toast">
             {t.tone === "success" && <Icon name="check" size={18} />}
@@ -362,7 +387,7 @@ function RestartPrompt(): JSX.Element | null {
 
 function SettingsSheet(props: { open: boolean; onClose: () => void }): JSX.Element {
   const store = useStore();
-  const { identity, view, pending } = usePhone();
+  const { identity, view, pending, me } = usePhone();
   const [name, setName] = useState(identity.name);
   const offset = view?.settings.avOffsetS ?? 0;
   const setOffset = (seconds: number): void =>
@@ -372,30 +397,32 @@ function SettingsSheet(props: { open: boolean; onClose: () => void }): JSX.Eleme
   return (
     <Sheet open={props.open} onClose={props.onClose} testId="settings" title={<div className="sheet-heading">Settings</div>}>
       <div className="settings">
-        <label className="field">
-          <span className="field-label">Your name</span>
-          <div className="field-row">
-            <input
-              className="input"
-              data-testid="rename-input"
-              maxLength={24}
-              value={name}
-              onChange={(e) => { setName(e.currentTarget.value); }}
-            />
-            <button
-              className="btn btn-primary"
-              data-testid="rename-save"
-              disabled={!changed || renaming}
-              onClick={() =>
-                void store.rename(name.trim()).then((ok) => {
-                  if (ok) store.toast("Name saved", "success");
-                })
-              }
-            >
-              {renaming ? <Spinner size={16} /> : "Save"}
-            </button>
-          </div>
-        </label>
+        {me !== HOST_SINGER && (
+          <label className="field">
+            <span className="field-label">Your name</span>
+            <div className="field-row">
+              <input
+                className="input"
+                data-testid="rename-input"
+                maxLength={24}
+                value={name}
+                onChange={(e) => { setName(e.currentTarget.value); }}
+              />
+              <button
+                className="btn btn-primary"
+                data-testid="rename-save"
+                disabled={!changed || renaming}
+                onClick={() =>
+                  void store.rename(name.trim()).then((ok) => {
+                    if (ok) store.toast("Name saved", "success");
+                  })
+                }
+              >
+                {renaming ? <Spinner size={16} /> : "Save"}
+              </button>
+            </div>
+          </label>
+        )}
         <div className="field">
           <span className="field-label">TV picture delay</span>
           <p className="field-help">If the lyrics and video run behind the music, raise this until they match.</p>

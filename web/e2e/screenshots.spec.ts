@@ -5,12 +5,12 @@ import { expect, queueLibrary, test, waitForTv } from "./party";
 const dir = resolve(import.meta.dirname, "screenshots");
 const shot = (page: Page, name: string): Promise<Buffer> => page.screenshot({ path: resolve(dir, `${name}.png`) });
 
-test("screenshots of the TV and phone pages", async ({ party, browser }) => {
+test("screenshots of the TV and phone pages", async ({ party }) => {
   const tv = await party.tv();
   await waitForTv(tv, (x) => x.stage.kind === "playing", "filler started");
 
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
-  await page.goto(`${party.url}/`);
+  const page = await party.emptyPhone("Newcomer");
+  await expect(page.getByTestId("name-input")).toBeVisible();
   await shot(page, "phone-name-gate");
   await page.close();
 
@@ -80,7 +80,7 @@ test("screenshots of the TV and phone pages", async ({ party, browser }) => {
   await bob.waitForTimeout(300);
   await shot(bob, "phone-at-tv-width-1920");
 
-  const control = await party.control("Host");
+  const control = await party.control();
   await control.getByTestId("search-input").fill("a");
   await control.waitForTimeout(800);
   await shot(control, "control-1600");

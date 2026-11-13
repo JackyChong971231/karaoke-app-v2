@@ -4,7 +4,7 @@ import type { NowView, PhoneView } from "../wire/types";
 import { FavHeart } from "./Favourites";
 import { usePhone, useStore } from "./store";
 import { formatKey, formatTime } from "./text";
-import { Art, Icon, ReadinessChip, Spinner } from "./ui";
+import { Art, Icon, LyricsFlag, Marquee, ReadinessChip, Spinner } from "./ui";
 
 const KEY_MIN = -6;
 const KEY_MAX = 6;
@@ -33,24 +33,19 @@ export function NowPlaying(props: { onFindSong: () => void }): JSX.Element {
       <div className="now-hero">
         <Art songId={now.song.songId} title={now.song.title} size="lg" />
         <div className="now-text">
-          <div className="now-eyebrow">
+          <h1 className="now-title" data-testid="now-title">
+            <Marquee text={now.song.title} />
+          </h1>
+          <div className="now-artist">
+            <span className="now-artist-name">{now.song.artist}</span>
             {now.isFiller ? (
-              <span className="tag tag-filler">Sing-along filler</span>
+              <span className="now-who is-filler">Sing-along filler</span>
             ) : (
-              <span className="tag tag-singer">
-                <Icon name="mic" size={14} /> {now.singerName}
-              </span>
-            )}
-            {now.lyricsFlagged && (
-              <span className="tag tag-warn" data-testid="now-lyrics-flagged">
-                <Icon name="alert" size={13} /> Lyrics may be wrong
+              <span className="now-who">
+                <Icon name="mic" size={13} /> {now.singerName}
               </span>
             )}
           </div>
-          <h1 className="now-title" data-testid="now-title">
-            {now.song.title}
-          </h1>
-          <div className="now-artist">{now.song.artist}</div>
         </div>
         <FavHeart songRef={{ kind: "song", songId: now.song.songId }} title={now.song.title} artistId={now.song.artistId} size="md" />
       </div>
@@ -118,7 +113,7 @@ function Transport(props: { now: NowView }): JSX.Element {
   const skipping = pending.has("skip");
   return (
     <div className="transport">
-      <div className="transport-side" />
+      <div className="transport-side">{now.lyricsFlagged && <LyricsFlag look="side" testId="now-lyrics-flagged" />}</div>
       <button
         className="round round-xl"
         data-testid="pause"
@@ -130,13 +125,13 @@ function Transport(props: { now: NowView }): JSX.Element {
       </button>
       <div className="transport-side">
         <button
-          className="round round-md round-ghost"
+          className="round round-sm round-ghost"
           data-testid="skip"
           aria-label="Skip song"
           disabled={skipping}
           onClick={() => void store.run("skip", { kind: "skip", playId: now.playId })}
         >
-          {skipping ? <Spinner size={22} /> : <Icon name="skip" size={26} />}
+          {skipping ? <Spinner size={18} /> : <Icon name="skip" size={22} />}
         </button>
         <span className="round-label">Skip</span>
       </div>
@@ -229,10 +224,6 @@ function VocalCard(props: { level: number }): JSX.Element {
         onTouchCancel={endDrag}
         onBlur={endDrag}
       />
-      <div className="card-scale">
-        <span>Off</span>
-        <span>Full</span>
-      </div>
     </div>
   );
 }
@@ -249,20 +240,13 @@ function KeyCard(props: { now: NowView }): JSX.Element {
     void store.run(`key:${String(performance.now())}`, { kind: "stepKey", playId: now.playId, step });
   const busy = pending.has("key");
   return (
-    <div className="card">
-      <div className="card-head">
-        <span className="card-title">
-          <Icon name="note" size={18} /> Key
-        </span>
-        {now.semitones !== 0 && (
-          <button className="link" data-testid="key-reset" disabled={busy} onClick={() => { setKey(0); }}>
-            Reset
-          </button>
-        )}
-      </div>
-      <div className="stepper">
+    <div className="card card-key">
+      <span className="card-title">
+        <Icon name="note" size={18} /> Key
+      </span>
+      <div className="stepper stepper-key">
         <button
-          className="round round-md round-ghost"
+          className="round round-sm round-ghost"
           data-testid="key-down"
           aria-label="Lower key"
           disabled={busy || now.semitones <= KEY_MIN}
@@ -271,10 +255,10 @@ function KeyCard(props: { now: NowView }): JSX.Element {
           <Icon name="minus" />
         </button>
         <div className="stepper-value" data-testid="key-value">
-          {busy ? <Spinner size={20} /> : formatKey(now.semitones)}
+          {busy ? <Spinner size={18} /> : formatKey(now.semitones)}
         </div>
         <button
-          className="round round-md round-ghost"
+          className="round round-sm round-ghost"
           data-testid="key-up"
           aria-label="Raise key"
           disabled={busy || now.semitones >= KEY_MAX}
@@ -283,24 +267,52 @@ function KeyCard(props: { now: NowView }): JSX.Element {
           <Icon name="plus" />
         </button>
       </div>
-      <div className="key-dots" aria-hidden="true">
-        {Array.from({ length: KEY_MAX - KEY_MIN + 1 }, (_, i) => i + KEY_MIN).map((k) => (
-          <span key={k} className={`key-dot ${k === now.semitones ? "is-on" : ""} ${k === 0 ? "is-zero" : ""}`} />
-        ))}
-      </div>
+      <span className="key-reset-slot">
+        {now.semitones !== 0 && (
+          <button className="link" data-testid="key-reset" disabled={busy} onClick={() => { setKey(0); }}>
+            Reset
+          </button>
+        )}
+      </span>
     </div>
   );
 }
 
+/** Up next opens to this many songs, and each "Load more" adds UP_NEXT_MORE. */
+const UP_NEXT_FIRST = 3;
+const UP_NEXT_MORE = 5;
+
+// Collapsed by default so the whole page fits one phone screen: the header row still shows the next song and how
+// many wait. Opening shows the first few, and "Load more" reveals more without leaving the page.
 function UpNext(props: { view: PhoneView }): JSX.Element | null {
-  const next = props.view.queue.slice(0, 3);
-  if (next.length === 0) return null;
+  const [open, setOpen] = useState(false);
+  const [limit, setLimit] = useState(UP_NEXT_FIRST);
+  const queue = props.view.queue;
+  if (queue.length === 0) return null;
+  const shown = open ? queue.slice(0, limit) : queue.slice(0, 1);
+  const hidden = queue.length - shown.length;
   return (
-    <section className="section">
-      <h3 className="section-title">Up next</h3>
-      <ul className="list">
-        {next.map((e) => (
-          <li key={e.entryId} className="row">
+    <section className={`upnext ${open ? "is-open" : ""}`} data-testid="up-next">
+      <button
+        className="upnext-head"
+        data-testid="up-next-toggle"
+        aria-expanded={open}
+        onClick={() => {
+          setOpen(!open);
+          setLimit(UP_NEXT_FIRST);
+        }}
+      >
+        <span className="section-title">
+          Up next <span className="section-count">{queue.length}</span>
+        </span>
+        <span className="upnext-more">
+          {!open && hidden > 0 && `+${String(hidden)} more`}
+          <Icon name="chevronDown" size={20} className="upnext-chevron" />
+        </span>
+      </button>
+      <ul className="list list-compact">
+        {shown.map((e) => (
+          <li key={e.entryId} className="row" data-testid="up-next-row">
             <Art songId={e.song.songId} title={e.song.title} />
             <div className="row-text">
               <div className="row-title">{e.song.title}</div>
@@ -312,6 +324,11 @@ function UpNext(props: { view: PhoneView }): JSX.Element | null {
           </li>
         ))}
       </ul>
+      {open && hidden > 0 && (
+        <button className="btn btn-quiet upnext-load" data-testid="up-next-more" onClick={() => { setLimit(limit + UP_NEXT_MORE); }}>
+          Load more ({hidden})
+        </button>
+      )}
     </section>
   );
 }

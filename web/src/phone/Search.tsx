@@ -9,7 +9,7 @@ import { BrowseHome, PlacePage, ReadyPage, type Nav } from "./Browse";
 import { FavHeart } from "./Favourites";
 import type { PickController, PickFlow } from "./pickVideo";
 import { formatTime } from "./text";
-import { Art, Icon, Sheet, Spinner } from "./ui";
+import { Art, Icon, LyricsFlag, Sheet, Spinner } from "./ui";
 
 export function usePickFlow(pick: PickController): PickFlow {
   return useSyncExternalStore(pick.subscribe, pick.get);
@@ -327,7 +327,7 @@ export function LibraryRow(props: {
           <span className="chip chip-ready" data-testid="ready-badge">
             <span className="chip-dot" /> Ready
           </span>
-          {hit.lyricsFlagged && <span className="chip chip-warn">Lyrics may be wrong</span>}
+          {hit.lyricsFlagged && <LyricsFlag look="chip" testId="library-lyrics-flagged" />}
           <button
             className="link link-sm"
             data-testid="library-other-videos"

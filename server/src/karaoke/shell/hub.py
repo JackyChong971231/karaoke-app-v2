@@ -25,6 +25,7 @@ from karaoke.core import SingerId, SongId, SongMeta
 from karaoke.party import Hello, Input, Outcome, Playing, Rejected, TvPresence
 from karaoke.shell import parse
 from karaoke.shell.loop import PartyLoop
+from karaoke.shell.views import LAPTOP
 from karaoke.songs.catalog import Catalog
 from karaoke.songs.favourites import Favourites
 from karaoke.songs.library import Library
@@ -36,7 +37,7 @@ _INTERNAL_ERROR = 1011
 _RESUME_MEMORY = 8
 
 
-LAPTOP = SingerId("net:laptop")
+
 TEST_DEVICE_COOKIE = "karaoke-test-device"
 """Fake world only: tests run every phone from one computer, so a cookie stands in for each phone's address."""
 

@@ -43,7 +43,7 @@ from karaoke import contract as c
 from karaoke.core import ArtistId, ArtistRef, SongId, SongMeta
 from karaoke.importer import ImportService, PlanItem
 from karaoke.shell.hub import Hub
-from karaoke.shell.views import board_readiness, song_view
+from karaoke.shell.views import LAPTOP, board_readiness, song_view
 from karaoke.songs.browse import PLACE_BY_ID, PLACES, Browse
 from karaoke.songs.catalog import (
     Catalog, ChooseVideo, LibraryHit, OfficialVideo, OnlineKey, OnlineSong, OnlineUnavailable, PickId,
@@ -107,6 +107,9 @@ def routes(s: Services) -> list[BaseRoute]:
             singers=[c.SingerView(artist_id=x.artist.id, name=x.artist.name, photo_url=x.photo_url) for x in page.singers],
             online_ok=page.online_ok,
         ))
+
+    async def whoami(request: Request) -> Response:
+        return _json(c.WhoAmIResponse(is_laptop=s.hub.device_of(request) == LAPTOP))
 
     async def ready(request: Request) -> Response:
         hits = tuple(LibraryHit(r.meta, r.lyrics_source == "transcribed") for r in lib.newest())
@@ -263,6 +266,7 @@ def routes(s: Services) -> list[BaseRoute]:
         Route("/api/browse", browse),
         Route("/api/place/{place_id}", place),
         Route("/api/ready", ready),
+        Route("/api/whoami", whoami),
         Route("/api/artist-place", artist_place, methods=["POST"]),
         Route("/api/video-choice", video_choice),
         Route("/api/video-options", video_options),

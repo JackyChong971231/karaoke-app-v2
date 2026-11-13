@@ -68,6 +68,27 @@ def test_views_merge_party_board_and_clock() -> None:
     assert wire["now"]["playId"] == 1 and wire["queue"][0]["readiness"]["kind"] == "preparing"
 
 
+def test_songs_the_laptop_queues_show_system_as_the_singer() -> None:
+    lap = views.LAPTOP
+    s = fold(Hello(lap, "Jacky"), TvPresence(True), QueueSong(lap, song("1")), QueueSong(lap, song("2")),
+             SongReady(song("1").id))
+    phone = views.phone_view(1, s, {}, "cpu", frozenset())
+    assert phone.now is not None and phone.now.singer_name == "System"
+    assert [e.singer_name for e in phone.queue] == ["System"]
+    assert phone.queue[0].singer_id == lap, "the control page still knows the song is its own"
+    tv = views.tv_view(1, s, {}, "u", frozenset())
+    assert tv.play is not None and tv.play.singer_name == "System"
+    assert tv.up_next is not None and tv.up_next.singer_name == "System"
+    # A guest's own laptop is not the laptop running the app: it is a device like a phone and keeps its name.
+    from karaoke.shell.hub import device_singer
+    guest = device_singer("192.168.1.50", frozenset({"127.0.0.1", "::1", "192.168.1.20"}))
+    s = fold(Hello(lap, "Jacky"), Hello(guest, "Ben"), QueueSong(lap, song("3")), QueueSong(guest, song("4")))
+    assert [e.singer_name for e in views.phone_view(1, s, {}, "cpu", frozenset()).queue] == ["System", "Ben"]
+    offer = initial_state(DurableSnapshot((SavedEntry(song("1"), lap, "Jacky"),), Settings()))
+    restart = views.tv_view(1, offer, {}, "u", frozenset()).restart_offer
+    assert restart is not None and restart.singer_names == ["System"]
+
+
 def test_failed_preparation_shows_its_reason() -> None:
     s = fold(Hello(A, "Amy"), QueueSong(A, song("1")))
     r = views.readiness(song("1").id, s, {song("1").id: PrepStatus("failed", None, "cant_download")})
@@ -119,7 +140,8 @@ def test_schema_export_is_stable_and_carries_the_protocol(tmp_path: Path, monkey
 
 
 def test_a_singer_is_the_phone_address_and_the_laptop_is_one_singer() -> None:
-    from karaoke.shell.hub import LAPTOP, device_singer
+    from karaoke.shell.hub import device_singer
+    from karaoke.shell.views import LAPTOP
     laptop = frozenset({"127.0.0.1", "::1", "192.168.1.20"})
     assert device_singer("192.168.1.31", laptop) == SingerId("net:192.168.1.31")
     assert device_singer("::ffff:192.168.1.31", laptop) == SingerId("net:192.168.1.31")
