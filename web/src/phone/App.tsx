@@ -3,7 +3,8 @@
 // `desk` is the laptop control page: all three screens side by side instead of tabs.
 
 import type { JSX } from "react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { api } from "../wire/http";
 import type { NowView } from "../wire/types";
 import { NowPlaying } from "./NowPlaying";
 import { Queue } from "./Queue";
@@ -27,8 +28,7 @@ export function App(props: { desk?: boolean }): JSX.Element {
   if (identity === null) {
     return (
       <NameGate
-        onDone={(name) => {
-          const id = { browserId: newBrowserId(), name };
+        onDone={(id) => {
           saveIdentity(id);
           setIdentity(id);
         }}
@@ -183,6 +183,7 @@ function PhoneSearch(): JSX.Element {
     <SearchPanel
       pick={store.pick}
       onPickFailed={onFailed}
+      hearts
       library={{
         label: "Add",
         busy: (songId) => pending.has(`lib:${songId}`),
@@ -196,9 +197,86 @@ function PhoneSearch(): JSX.Element {
   );
 }
 
-function NameGate(props: { onDone: (name: string) => void }): JSX.Element {
+type Offer = { token: string; name: string; count: number };
+
+// First visit from this browser. A phone whose browser starts empty because the laptop's address changed is offered
+// its old favourites: first by its Wi-Fi address before it types anything, then by the name it types. Nothing is
+// restored unless the singer says yes (spec "Favourite songs").
+function NameGate(props: { onDone: (id: Identity) => void }): JSX.Element {
+  const [browserId] = useState(newBrowserId);
   const [name, setName] = useState("");
+  const [offer, setOffer] = useState<Offer | null>(null);
+  const [declined, setDeclined] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const ok = name.trim().length > 0;
+  useEffect(() => {
+    let live = true;
+    api.restoreOffer(null).then(
+      (r) => { if (live && r.kind === "offer") setOffer(r); },
+      () => undefined,
+    );
+    return () => { live = false; };
+  }, []);
+  const finish = (finalName: string): void => { props.onDone({ browserId, name: finalName }); };
+  const accept = async (o: Offer): Promise<void> => {
+    setBusy(true);
+    const finalName = name.trim() || o.name;
+    try {
+      await api.restoreClaim({ token: o.token, browserId, name: finalName });
+    } catch {
+      // The offer expired; start with an empty list rather than block the singer.
+    }
+    finish(finalName);
+  };
+  const submit = async (): Promise<void> => {
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const r = await api.restoreOffer(name.trim());
+      if (r.kind === "offer" && r.name !== declined) {
+        setOffer(r);
+        setBusy(false);
+        return;
+      }
+    } catch {
+      // No offer when the laptop cannot be reached; the singer still gets in.
+    }
+    finish(name.trim());
+  };
+  if (offer !== null) {
+    return (
+      <div className="gate">
+        <div className="gate-glow" />
+        <div className="gate-card" data-testid="restore-offer">
+          <span className="brand-mark brand-mark-lg">
+            <Icon name="heartFill" size={34} />
+          </span>
+          <h1>Welcome back, {offer.name}</h1>
+          <p>
+            Keep your {offer.count} favourite {offer.count === 1 ? "song" : "songs"}? They are saved on the karaoke
+            laptop from your last visit.
+          </p>
+          <div className="button-row">
+            <button
+              className="btn"
+              data-testid="restore-no"
+              disabled={busy}
+              onClick={() => {
+                setDeclined(offer.name);
+                setOffer(null);
+                if (ok) finish(name.trim());
+              }}
+            >
+              No, start fresh
+            </button>
+            <button className="btn btn-primary" data-testid="restore-yes" disabled={busy} onClick={() => void accept(offer)}>
+              {busy ? <Spinner size={16} /> : null} Yes, keep them
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="gate">
       <div className="gate-glow" />
@@ -206,7 +284,7 @@ function NameGate(props: { onDone: (name: string) => void }): JSX.Element {
         className="gate-card"
         onSubmit={(e) => {
           e.preventDefault();
-          if (ok) props.onDone(name.trim());
+          void submit();
         }}
       >
         <span className="brand-mark brand-mark-lg">
@@ -223,8 +301,8 @@ function NameGate(props: { onDone: (name: string) => void }): JSX.Element {
           value={name}
           onChange={(e) => { setName(e.currentTarget.value); }}
         />
-        <button className="btn btn-primary btn-block" type="submit" disabled={!ok} data-testid="name-submit">
-          Let's sing
+        <button className="btn btn-primary btn-block" type="submit" disabled={!ok || busy} data-testid="name-submit">
+          {busy ? <Spinner size={16} /> : null} Let's sing
         </button>
       </form>
     </div>

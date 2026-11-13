@@ -77,6 +77,53 @@ test("a singer chooses the video: official first, or another one", async ({ part
   expect(state.party.queue.map((e) => e.song.id)).toEqual(["fkugc000012", "fkugc000101"]);
 });
 
+test("favourites: heart songs, queue from the list, and get them back on an empty browser", async ({ party }) => {
+  const tv = await party.tv();
+  await waitForTv(tv, (x) => x.stage.kind === "playing", "filler started");
+  const alice = await party.phone("Alice");
+  await alice.getByTestId("pause").click();
+  await alice.getByTestId("tab-search").click();
+  await expect(alice.getByTestId("favourites-empty")).toBeVisible();
+
+  await alice.getByTestId("search-input").fill("Fake Song One");
+  await alice.getByTestId("online-result").filter({ hasText: "Fake Song One" }).getByTestId("fav-heart").click();
+  await expect(alice.getByTestId("toast").filter({ hasText: "Added “Fake Song One” to favourites" })).toBeVisible();
+  await expect(alice.getByTestId("online-result").filter({ hasText: "Fake Song One" }).getByTestId("fav-heart"))
+    .toHaveAttribute("aria-pressed", "true");
+  await alice.getByTestId("search-input").fill("Morning Sun");
+  await alice.getByTestId("library-result").filter({ hasText: "Morning Sun" }).getByTestId("fav-heart").click();
+  await expect(alice.getByTestId("toast").filter({ hasText: "Added “Morning Sun” to favourites" })).toBeVisible();
+
+  await alice.getByTestId("search-input").fill("");
+  const rows = alice.getByTestId("favourite-row");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toContainText("Morning Sun");
+  await rows.filter({ hasText: "Fake Song One" }).getByTestId("queue-favourite").click();
+  await expect(alice.getByTestId("toast").filter({ hasText: "Queued “Fake Song One”" })).toBeVisible();
+  await alice.getByTestId("tab-queue").click();
+  await expect(alice.getByTestId("queue-row-title")).toHaveText(["Fake Song One"]);
+
+  // The laptop's address changed, so Alice's browser starts empty. The app offers her list back.
+  const again = await party.emptyPhone("Alice");
+  await expect(again.getByTestId("restore-offer")).toContainText("Welcome back, Alice");
+  await expect(again.getByTestId("restore-offer")).toContainText("2 favourite songs");
+  await again.getByTestId("restore-yes").click();
+  await expect(again.getByTestId("tv-status")).toBeVisible();
+  await again.getByTestId("tab-search").click();
+  await expect(again.getByTestId("favourite-row")).toHaveCount(2);
+
+  // A different phone is offered nothing until it types a name that has a list, and can say no.
+  const other = await party.emptyPhone("someone-else");
+  await expect(other.getByTestId("name-input")).toBeVisible();
+  await other.getByTestId("name-input").fill("alice");
+  await other.getByTestId("name-submit").click();
+  await expect(other.getByTestId("restore-offer")).toContainText("Welcome back, Alice");
+  await other.getByTestId("restore-no").click();
+  await expect(other.getByTestId("tv-status")).toBeVisible();
+  await other.getByTestId("tab-search").click();
+  await expect(other.getByTestId("favourites-empty")).toBeVisible();
+});
+
 test("skip advances exactly one song with a double tap", async ({ party }) => {
   const tv = await party.tv();
   const filler = await waitForTv(tv, (x) => x.stage.kind === "playing", "filler started");

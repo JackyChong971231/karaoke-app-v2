@@ -10,7 +10,7 @@
 import { createContext, useContext, useSyncExternalStore } from "react";
 import { api } from "../wire/http";
 import { connectPhone, type Link, type PartySocket } from "../wire/socket";
-import type { Outcome, PhoneCommand, PhoneView } from "../wire/types";
+import type { FavouriteRef, FavouriteView, Outcome, PhoneCommand, PhoneView } from "../wire/types";
 import { PickController } from "./pickVideo";
 import { rejectText } from "./text";
 
@@ -78,6 +78,8 @@ export interface PhoneState {
   /** Controls showing a spinner until their reply arrives, keyed by a control id such as "skip". */
   pending: ReadonlySet<string>;
   toasts: readonly Toast[];
+  /** This browser's favourite songs, newest first, saved on the laptop. Null until loaded. */
+  favourites: readonly FavouriteView[] | null;
   /** Queue order shown while a drag-drop move is in flight, so the row does not jump back before the reply. */
   reorder: readonly number[] | null;
 }
@@ -95,6 +97,10 @@ export interface PhoneStore {
   progressS(): number | null;
   toast(message: string, tone?: Toast["tone"]): void;
   rename(name: string): Promise<boolean>;
+  /** Heart a song, or un-heart it when `songId` is already a favourite. */
+  toggleFavourite(ref: FavouriteRef, title: string): Promise<void>;
+  queueFavourite(songId: string, title: string): Promise<void>;
+  refreshFavourites(): Promise<void>;
   readonly pick: PickController;
 }
 
@@ -109,6 +115,7 @@ export function createPhoneStore(initial: Identity): PhoneStore {
     me: socket.me(),
     pending: new Set(),
     toasts: [],
+    favourites: null,
     reorder: null,
   };
   let nextToast = 1;
@@ -173,6 +180,36 @@ export function createPhoneStore(initial: Identity): PhoneStore {
       set({ identity });
       return true;
     },
+    async refreshFavourites() {
+      try {
+        set({ favourites: (await api.favourites(identity.browserId)).songs });
+      } catch {
+        // Offline: keep the last list.
+      }
+    },
+    async toggleFavourite(ref, title) {
+      const songId = ref.kind === "song" ? ref.songId : null;
+      const remove = songId !== null && (state.favourites ?? []).some((f) => f.song.songId === songId) ? songId : null;
+      const control = `fav:${ref.kind === "song" ? ref.songId : ref.onlineKey}`;
+      if (state.pending.has(control)) return;
+      set({ pending: new Set([...state.pending, control]) });
+      try {
+        const res = remove !== null
+          ? await api.favouriteRemove({ browserId: identity.browserId, name: identity.name, songId: remove })
+          : await api.favouriteAdd({ browserId: identity.browserId, name: identity.name, ref });
+        set({ favourites: res.songs });
+        toast(remove !== null ? `Removed “${title}” from favourites` : `Added “${title}” to favourites`, "success");
+      } catch {
+        toast("Couldn't update favourites. Try again.", "error");
+      }
+      const pending = new Set(state.pending);
+      pending.delete(control);
+      set({ pending });
+    },
+    async queueFavourite(songId, title) {
+      const outcome = await run(`favq:${songId}`, { kind: "queueFavourite", songId });
+      if (outcome?.kind === "accepted") toast(`Queued “${title}”`, "success");
+    },
     pick: new PickController(
       (pickId) => run(`pick:${pickId}`, { kind: "queuePick", pickId }, { quiet: true }),
       (song) => { toast(`Queued “${song.title}”`, "success"); },
@@ -180,6 +217,7 @@ export function createPhoneStore(initial: Identity): PhoneStore {
     ),
   };
 
+  void store.refreshFavourites();
   window.__karaokePhone = {
     probe: () => ({
       rev: state.view?.rev ?? null,

@@ -296,6 +296,56 @@ def test_renaming_or_a_second_browser_on_one_phone_is_still_one_singer(server: s
     asyncio.run(mic_hog(server))
 
 
+def post(url: str, body: dict[str, Any], device: str) -> Any:
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST", headers={
+        "content-type": "application/json", "Cookie": f"karaoke-test-device={device}"})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return json.loads(r.read())
+
+
+def get_as(url: str, device: str) -> Any:
+    req = urllib.request.Request(url, headers={"Cookie": f"karaoke-test-device={device}"})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return json.loads(r.read())
+
+
+async def favourites(url: str) -> None:
+    """Spec "Favourite songs": hearts from search, queue from the list, and the list survives a browser that starts
+    empty after the laptop's address changed."""
+    amy = await Client.open(url, "amy", {"kind": "phoneHello", "browserId": "browser-1", "name": "Amy"})
+    online = (await aget(f"{url}/api/search?q=fake"))["online"]["songs"]
+    one = next(s for s in online if s["title"] == "Fake Song One")
+    lib = (await aget(f"{url}/api/search?q=Morning%20Sun"))["library"][0]["song"]
+    add = f"{url}/api/favourites/add"
+    await asyncio.to_thread(post, add, {"browserId": "browser-1", "name": "Amy",
+                                        "ref": {"kind": "online", "onlineKey": one["onlineKey"]}}, "amy")
+    favs = await asyncio.to_thread(post, add, {"browserId": "browser-1", "name": "Amy",
+                                               "ref": {"kind": "song", "songId": lib["songId"]}}, "amy")
+    assert [(f["song"]["songId"], f["ready"]) for f in favs["songs"]] == [("fklib000001", True), ("fkomv000001", False)]
+
+    assert await amy.send({"kind": "queueFavourite", "songId": "fkomv000001"}) == {"kind": "accepted"}
+    assert await amy.send({"kind": "queueFavourite", "songId": "not-mine"}) == \
+        {"kind": "rejected", "reason": "unknown_entry"}
+    v = await amy.until(lambda v: any(e["song"]["songId"] == "fkomv000001" for e in v["queue"]))
+    assert v["queue"][0]["singerName"] == "Amy"
+
+    # The laptop's address changed: the phone's browser is empty, so it has a new browser id and no name yet.
+    offer = await asyncio.to_thread(get_as, f"{url}/api/favourites/offer", "amy")
+    assert {k: offer[k] for k in ("kind", "name", "count")} == {"kind": "offer", "name": "Amy", "count": 2}
+    assert (await asyncio.to_thread(get_as, f"{url}/api/favourites/offer", "stranger"))["kind"] == "none"
+    by_name = await asyncio.to_thread(get_as, f"{url}/api/favourites/offer?name=amy", "stranger")
+    assert by_name["kind"] == "offer"
+    restored = await asyncio.to_thread(post, f"{url}/api/favourites/claim",
+                                       {"token": offer["token"], "browserId": "browser-2", "name": "Amy"}, "amy")
+    assert len(restored["songs"]) == 2
+    assert (await aget(f"{url}/api/favourites?browser=browser-1"))["songs"] == []
+    await amy.close()
+
+
+def test_favourites_queue_and_restore(server: str) -> None:
+    asyncio.run(favourites(server))
+
+
 async def queue_songs(url: str) -> None:
     amy = await Client.open(url, "amy", {"kind": "phoneHello", "browserId": "browser-amy", "name": "Amy"})
     ben = await Client.open(url, "ben", {"kind": "phoneHello", "browserId": "browser-ben", "name": "Ben"})

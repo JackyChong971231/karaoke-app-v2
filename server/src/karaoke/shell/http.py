@@ -6,6 +6,10 @@
     GET  /api/artist/{artist_id}    -> contract.ArtistResponse          (Catalog.artist)
     GET  /api/video-choice?key=     -> contract.VideoChoiceResponse     (Catalog.resolve_video; import page)
     GET  /api/video-options?key=    -> contract.ChooseVideoResponse     (Catalog.video_options; phones; key may be lib:<id>)
+    GET  /api/favourites?browser=   -> contract.FavouritesResponse      (Favourites; one list per browser)
+    POST /api/favourites/add|remove -> contract.FavouritesResponse
+    GET  /api/favourites/offer?name=&browser= -> contract.RestoreOfferResponse (by phone address, then name)
+    POST /api/favourites/claim      -> contract.FavouritesResponse      (moves an offered list to this browser)
     GET  /media/{song_id}/{file}    -> Library.media_path; file restricted to vocab.MediaFile; Range requests on
     GET  /api/import                -> contract.ImportPlanView          (ImportService)
     POST /api/import/plan?limit=20  -> build or extend the plan (matching runs in the background)
@@ -32,7 +36,7 @@ from starlette.routing import BaseRoute, Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 
 from karaoke import contract as c
-from karaoke.core import ArtistId, SongId
+from karaoke.core import ArtistId, SongId, SongMeta
 from karaoke.importer import ImportService, PlanItem
 from karaoke.shell.hub import Hub
 from karaoke.shell.views import board_readiness, song_view
@@ -91,6 +95,70 @@ def routes(s: Services) -> list[BaseRoute]:
         except UnknownOnlineKey:
             return PlainTextResponse("unknown key", status_code=404)
         return _json(_resolution(ChooseVideo(found)))
+
+    # ---- favourites: one list per browser, saved on the laptop ----
+
+    def favourites_view(browser: str) -> Response:
+        songs = s.hub.favourites.songs(browser) if s.hub.favourites else ()
+        return _json(c.FavouritesResponse(songs=[c.FavouriteView(song=song_view(m), ready=lib.has(m.id)) for m in songs]))
+
+    async def favourites(request: Request) -> Response:
+        return favourites_view(request.query_params.get("browser", ""))
+
+    async def favourite_add(request: Request) -> Response:
+        fav = s.hub.favourites
+        try:
+            req = c.FavouriteAddRequest.model_validate_json(await request.body())
+        except ValidationError as e:
+            return PlainTextResponse(str(e), status_code=422)
+        if fav is None:
+            return PlainTextResponse("favourites are off", status_code=404)
+        meta = await _favourite_song(req.ref)
+        if meta is None:
+            return PlainTextResponse("unknown song", status_code=404)
+        fav.add(req.browser_id, req.name, s.hub.device_of(request), meta)
+        return favourites_view(req.browser_id)
+
+    async def _favourite_song(ref: c.LibrarySongRef | c.OnlineSongRef) -> SongMeta | None:
+        match ref:
+            case c.LibrarySongRef(song_id=song_id):
+                rec = lib.get(SongId(song_id))
+                return rec.meta if rec else s.hub.known_song(SongId(song_id))
+            case c.OnlineSongRef(online_key=key):
+                try:
+                    options = await s.catalog.video_options(OnlineKey(key))
+                except UnknownOnlineKey:
+                    return None
+                return s.catalog.pick(options[0].pick) if options else None
+
+    async def favourite_remove(request: Request) -> Response:
+        try:
+            req = c.FavouriteRemoveRequest.model_validate_json(await request.body())
+        except ValidationError as e:
+            return PlainTextResponse(str(e), status_code=422)
+        if s.hub.favourites:
+            s.hub.favourites.remove(req.browser_id, SongId(req.song_id), req.name, s.hub.device_of(request))
+        return favourites_view(req.browser_id)
+
+    async def restore_offer(request: Request) -> Response:
+        """A phone whose browser starts empty (the laptop's address changed) asks for its old list: first by its
+        Wi-Fi address, then by the typed name. Never returns the songs, only the list's name and size."""
+        fav = s.hub.favourites
+        name = request.query_params.get("name") or None
+        found = fav.offer(s.hub.device_of(request), name, request.query_params.get("browser")) if fav else None
+        if found is None:
+            return _json(c.NoRestoreOffer(kind="none"))
+        return _json(c.RestoreOfferFound(kind="offer", token=found.token, name=found.name, count=found.count))
+
+    async def restore_claim(request: Request) -> Response:
+        try:
+            req = c.RestoreClaimRequest.model_validate_json(await request.body())
+        except ValidationError as e:
+            return PlainTextResponse(str(e), status_code=422)
+        fav = s.hub.favourites
+        if fav is None or fav.claim(req.token, req.browser_id, req.name, s.hub.device_of(request)) is None:
+            return PlainTextResponse("offer expired", status_code=410)
+        return favourites_view(req.browser_id)
 
     async def media(request: Request) -> Response:
         file = request.path_params["file"]
@@ -152,6 +220,11 @@ def routes(s: Services) -> list[BaseRoute]:
         Route("/api/artist/{artist_id}", artist),
         Route("/api/video-choice", video_choice),
         Route("/api/video-options", video_options),
+        Route("/api/favourites", favourites),
+        Route("/api/favourites/add", favourite_add, methods=["POST"]),
+        Route("/api/favourites/remove", favourite_remove, methods=["POST"]),
+        Route("/api/favourites/offer", restore_offer),
+        Route("/api/favourites/claim", restore_claim, methods=["POST"]),
         Route("/media/{song_id}/{file}", media),
         Route("/api/import", importer_route(import_view)),
         Route("/api/import/plan", importer_route(import_plan), methods=["POST"]),

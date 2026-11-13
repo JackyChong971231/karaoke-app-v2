@@ -1699,3 +1699,47 @@ h3 {
 [data-testid="video-picker"] .btn-block {
   margin-bottom: 14px;
 }
+
+/* ---- favourites (2026-11-12) ---- */
+.heart {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  transition: transform 120ms var(--ease), color 160ms;
+}
+
+.heart.is-on {
+  color: #ff5c8a;
+}
+
+.heart:active:not(:disabled) {
+  transform: scale(0.85);
+}
+
+.heart-md {
+  width: 48px;
+  height: 48px;
+}
+
+.now-hero {
+  position: relative;
+}
+
+.now-hero > .heart {
+  position: absolute;
+  right: -6px;
+  bottom: 0;
+}
+
+.now-hero .now-text {
+  padding-right: 44px;
+}
+
+.sheet-song .row-text {
+  flex: 1;
+  min-width: 0;
+}

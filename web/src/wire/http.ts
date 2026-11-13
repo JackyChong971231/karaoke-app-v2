@@ -3,6 +3,11 @@
 
 import type {
   ArtistResponse,
+  FavouriteAddRequest,
+  FavouriteRemoveRequest,
+  FavouritesResponse,
+  RestoreClaimRequest,
+  RestoreOfferResponse,
   ImportDecideRequest,
   ImportPlanView,
   LyricsDoc,
@@ -25,6 +30,10 @@ async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
 
 const q = encodeURIComponent;
 
+function post<T>(url: string, body: unknown): Promise<T> {
+  return request<T>(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+}
+
 export const api = {
   search: (query: string, signal: AbortSignal) => request<SearchResponse>(`/api/search?q=${q(query)}`, { signal }),
   artist: (artistId: string, signal: AbortSignal) => request<ArtistResponse>(`/api/artist/${q(artistId)}`, { signal }),
@@ -33,6 +42,13 @@ export const api = {
   /** Phones: always a list, the official video first and flagged. `key` may be `lib:<song id>`. */
   videoOptions: (onlineKey: string, signal: AbortSignal) =>
     request<VideoChoiceResponse>(`/api/video-options?key=${q(onlineKey)}`, { signal }),
+  favourites: (browserId: string) => request<FavouritesResponse>(`/api/favourites?browser=${q(browserId)}`),
+  favouriteAdd: (body: FavouriteAddRequest) => post<FavouritesResponse>("/api/favourites/add", body),
+  favouriteRemove: (body: FavouriteRemoveRequest) => post<FavouritesResponse>("/api/favourites/remove", body),
+  /** A saved list this phone may take back: by its Wi-Fi address, or by the typed name. */
+  restoreOffer: (name: string | null) =>
+    request<RestoreOfferResponse>(name === null ? "/api/favourites/offer" : `/api/favourites/offer?name=${q(name)}`),
+  restoreClaim: (body: RestoreClaimRequest) => post<FavouritesResponse>("/api/favourites/claim", body),
   lyrics: (songId: string, signal: AbortSignal) => request<LyricsDoc>(`/media/${q(songId)}/lyrics.json`, { signal }),
   importPlan: (signal?: AbortSignal) => request<ImportPlanView>("/api/import", signal ? { signal } : {}),
   importMatch: (limit: number | null) =>

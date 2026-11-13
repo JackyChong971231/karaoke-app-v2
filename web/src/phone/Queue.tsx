@@ -1,4 +1,5 @@
 import type { JSX } from "react";
+import { FavHeart } from "./Favourites";
 import {
   DndContext,
   KeyboardSensor,
@@ -119,6 +120,12 @@ export function Queue(props: { onFindSong: () => void }): JSX.Element {
                   {menuEntry.song.artist} · {menuEntry.singerName}
                 </div>
               </div>
+              <FavHeart
+                songRef={{ kind: "song", songId: menuEntry.song.songId }}
+                title={menuEntry.song.title}
+                artistId={menuEntry.song.artistId}
+                size="md"
+              />
             </div>
           )
         }

@@ -239,6 +239,14 @@ class SetAvOffsetCmd(Wire):
     seconds: float
 
 
+class QueueFavouriteCmd(Wire):
+    """Queue a song from this browser's favourites. Checked against the stored list, so a phone cannot queue an
+    arbitrary video id."""
+
+    kind: Literal["queueFavourite"]
+    song_id: str
+
+
 class RenameCmd(Wire):
     kind: Literal["rename"]
     name: str
@@ -250,7 +258,7 @@ class ResolveRestartCmd(Wire):
 
 
 PhoneCommand = Annotated[
-    QueueLibraryCmd | QueuePickCmd | RemoveCmd | MoveCmd | SetPausedCmd | SkipCmd | SetKeyCmd | StepKeyCmd
+    QueueLibraryCmd | QueuePickCmd | QueueFavouriteCmd | RemoveCmd | MoveCmd | SetPausedCmd | SkipCmd | SetKeyCmd | StepKeyCmd
     | SetVocalCmd | SetVocalOnCmd | SetAvOffsetCmd | RenameCmd | ResolveRestartCmd,
     Field(discriminator="kind"),
 ]
@@ -442,6 +450,68 @@ class ChooseVideoResponse(Wire):
 VideoChoiceResponse = Annotated[OfficialFound | ChooseVideoResponse, Field(discriminator="kind")]
 
 
+# ---- favourites (one list per browser) ----
+
+class FavouriteView(Wire):
+    song: SongView
+    ready: bool
+    """In the library, so it starts at once when queued."""
+
+
+class FavouritesResponse(Wire):
+    songs: list[FavouriteView]
+    """Newest first."""
+
+
+class LibrarySongRef(Wire):
+    """A song the server already knows by video id: in the library, queued, or playing."""
+
+    kind: Literal["song"]
+    song_id: str
+
+
+class OnlineSongRef(Wire):
+    """A search result. The server stores it with its best video, the official one when there is one."""
+
+    kind: Literal["online"]
+    online_key: str
+
+
+FavouriteRef = Annotated[LibrarySongRef | OnlineSongRef, Field(discriminator="kind")]
+
+
+class FavouriteAddRequest(Wire):
+    browser_id: str
+    name: str
+    ref: FavouriteRef
+
+
+class FavouriteRemoveRequest(Wire):
+    browser_id: str
+    name: str
+    song_id: str
+
+
+class RestoreOfferFound(Wire):
+    kind: Literal["offer"]
+    token: str
+    name: str
+    count: int
+
+
+class NoRestoreOffer(Wire):
+    kind: Literal["none"]
+
+
+RestoreOfferResponse = Annotated[RestoreOfferFound | NoRestoreOffer, Field(discriminator="kind")]
+
+
+class RestoreClaimRequest(Wire):
+    token: str
+    browser_id: str
+    name: str
+
+
 # ---- importer (review page) ----
 
 class ImportItemView(Wire):
@@ -481,6 +551,11 @@ class Contract(Wire):
     search: SearchResponse
     artist: ArtistResponse
     video_choice: VideoChoiceResponse
+    favourites: FavouritesResponse
+    favourite_add: FavouriteAddRequest
+    favourite_remove: FavouriteRemoveRequest
+    restore_offer: RestoreOfferResponse
+    restore_claim: RestoreClaimRequest
     lyrics: LyricsDoc
     import_plan: ImportPlanView
     import_decide: ImportDecideRequest

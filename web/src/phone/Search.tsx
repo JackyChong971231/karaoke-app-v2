@@ -5,6 +5,7 @@ import type { JSX } from "react";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { api } from "../wire/http";
 import type { ArtistResponse, LibrarySongHit, OnlineResults, OnlineSongHit, SearchResponse } from "../wire/types";
+import { FavHeart, FavouritesList } from "./Favourites";
 import type { PickController, PickFlow } from "./pickVideo";
 import { formatTime } from "./text";
 import { Art, Icon, Sheet, Spinner } from "./ui";
@@ -54,7 +55,10 @@ export function SearchPanel(props: {
   library: LibraryAction | null;
   onPickFailed: (message: string) => void;
   autoFocus?: boolean;
+  /** Phones: hearts on songs and the favourites list. Off on the import page, which has no phone store. */
+  hearts?: boolean;
 }): JSX.Element {
+  const hearts = props.hearts === true;
   const [query, setQuery] = useState("");
   const [artist, setArtist] = useState<{ id: string; name: string } | null>(null);
   const trimmed = query.trim();
@@ -76,6 +80,7 @@ export function SearchPanel(props: {
         onBack={() => { setArtist(null); }}
         pick={props.pick}
         library={props.library}
+        hearts={hearts}
       />
     );
   }
@@ -106,7 +111,14 @@ export function SearchPanel(props: {
           )}
         </label>
       </div>
-      {trimmed === "" ? (
+      {trimmed === "" && hearts ? (
+        <section className="section" data-testid="favourites">
+          <h3 className="section-title">
+            <Icon name="heartFill" size={14} /> My favourites
+          </h3>
+          <FavouritesList emptyHint />
+        </section>
+      ) : trimmed === "" ? (
         <div className="empty empty-search">
           <div className="empty-art">
             <Icon name="search" size={36} />
@@ -129,6 +141,7 @@ export function SearchPanel(props: {
           libraryAction={props.library}
           onArtist={(id, name) => { setArtist({ id, name }); }}
           query={trimmed}
+          hearts={hearts}
         />
       )}
       <VideoPicker pick={props.pick} />
@@ -141,6 +154,7 @@ function ArtistPage(props: {
   onBack: () => void;
   pick: PickController;
   library: LibraryAction | null;
+  hearts: boolean;
 }): JSX.Element {
   const result = useRemote<ArtistResponse>(props.artist.id, api.artist, 0);
   const flow = usePickFlow(props.pick);
@@ -168,6 +182,7 @@ function ArtistPage(props: {
           libraryAction={props.library}
           onArtist={null}
           query={null}
+          hearts={props.hearts}
         />
       )}
       <VideoPicker pick={props.pick} />
@@ -183,8 +198,9 @@ function Results(props: {
   libraryAction: LibraryAction | null;
   onArtist: ((id: string, name: string) => void) | null;
   query: string | null;
+  hearts: boolean;
 }): JSX.Element {
-  const { library, online, flow, libraryAction, onArtist } = props;
+  const { library, online, flow, libraryAction, onArtist, hearts } = props;
   const onlineSongs = online.kind === "ok" ? online.songs : [];
   const artists = onArtist === null ? [] : uniqueArtists(library, onlineSongs, props.query);
   return (
@@ -224,6 +240,9 @@ function Results(props: {
                   </button>
                 </div>
               </div>
+              {hearts && (
+                <FavHeart songRef={{ kind: "song", songId: hit.song.songId }} title={hit.song.title} artistId={hit.song.artistId} />
+              )}
               <AddButton
                 busy={libraryAction.busy(hit.song.songId)}
                 label={`${libraryAction.label} ${hit.song.title}`}
@@ -255,6 +274,9 @@ function Results(props: {
                         {song.durationS > 0 && <span className="muted"> · {formatTime(song.durationS)}</span>}
                       </div>
                     </div>
+                    {hearts && (
+                      <FavHeart songRef={{ kind: "online", onlineKey: song.onlineKey }} title={song.title} artistId={song.artistId} />
+                    )}
                     <AddButton
                       busy={busy}
                       label={`Add ${song.title}`}

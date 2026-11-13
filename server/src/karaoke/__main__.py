@@ -36,6 +36,7 @@ from karaoke.shell.loop import PartyLoop
 from karaoke.shell.screens import open_pages
 from karaoke.shell.store import Store
 from karaoke.songs.catalog import Catalog, YouTubeMusic, YTMusicPort
+from karaoke.songs.favourites import Favourites
 from karaoke.songs.library import CloudSyncedRoot, Library
 from karaoke.songs.prepare import Preparer, RealStages, Stages
 
@@ -92,8 +93,10 @@ async def serve(args: argparse.Namespace) -> None:
     preparer = Preparer(library, catalog, stages, on_ready=on_ready, on_board_change=lambda: loop_ref[0].refresh())
     loop = PartyLoop(initial_state(store.load()), store, journal, preparer, library, join_url)
     loop_ref.append(loop)
+    favourites = Favourites(data / "favourites.json")
+    favourites.load()
     hub = Hub(loop, library, catalog, protocol_hash(),
-              laptop_addresses=frozenset({"127.0.0.1", "::1", lan}), test_devices=fake)
+              laptop_addresses=frozenset({"127.0.0.1", "::1", lan}), test_devices=fake, favourites=favourites)
     loop.attach_hub(hub)
 
     importer = None

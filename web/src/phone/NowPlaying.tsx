@@ -1,6 +1,7 @@
 import type { JSX } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { NowView, PhoneView } from "../wire/types";
+import { FavHeart } from "./Favourites";
 import { usePhone, useStore } from "./store";
 import { formatKey, formatTime } from "./text";
 import { Art, Icon, ReadinessChip, Spinner } from "./ui";
@@ -51,6 +52,7 @@ export function NowPlaying(props: { onFindSong: () => void }): JSX.Element {
           </h1>
           <div className="now-artist">{now.song.artist}</div>
         </div>
+        <FavHeart songRef={{ kind: "song", songId: now.song.songId }} title={now.song.title} artistId={now.song.artistId} size="md" />
       </div>
       <Progress now={now} />
       <Transport now={now} />

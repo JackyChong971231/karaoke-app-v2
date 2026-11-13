@@ -33,3 +33,5 @@ export type PrepStage = PreparingState["stage"];
 export type FailReason = FailedState["reason"];
 export type LyricsSource = LyricsDoc["source"];
 export type ImportDecision = ImportItemView["decision"];
+export type RestoreOfferResponse = Contract["restoreOffer"];
+export type FavouriteRef = Contract["favouriteAdd"]["ref"];

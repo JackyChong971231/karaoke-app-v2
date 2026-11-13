@@ -8,11 +8,12 @@ Value-range rules (key -6..6, vocal 0..1) stay in the reducer so they have one h
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import assert_never
 
 from karaoke import contract as c
-from karaoke.core import SingerId, SongId
+from karaoke.core import SingerId, SongId, SongMeta
 from karaoke.party import (
     Before, End, EntryId, Front, Input, MoveEntry, PlayId, Position, QueueSong, RemoveEntry, Rename, ResolveRestart,
     SetAvOffset, SetKey, SetPaused, SetVocal, SetVocalOn, Skip, StepKey, TrackEnded, TrackFailed,
@@ -31,9 +32,14 @@ class Unresolvable:
 
 
 def phone_input(cmd: c.PhoneCommand, by: SingerId, library: Library, catalog: Catalog,
-                name: str | None = None) -> Input | Unresolvable:
-    """`by` is the phone (from the connection's address); `name` is the sending browser's current name."""
+                name: str | None = None, favourite: Callable[[SongId], SongMeta | None] = lambda _: None,
+                ) -> Input | Unresolvable:
+    """`by` is the phone (from the connection's address); `name` is the sending browser's current name;
+    `favourite` looks a song up in the sending browser's favourites."""
     match cmd:
+        case c.QueueFavouriteCmd(song_id=song_id):
+            meta = favourite(SongId(song_id))
+            return Unresolvable("unknown_entry") if meta is None else QueueSong(by, meta, name)
         case c.QueueLibraryCmd(song_id=song_id):
             rec = library.get(SongId(song_id))
             return Unresolvable("unknown_entry") if rec is None else QueueSong(by, rec.meta, name)

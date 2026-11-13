@@ -105,6 +105,15 @@ export class Party {
    *  this computer, so the fake world's test cookie stands in for the address: `device` defaults to the name.
    *  Two pages with the same `device` are two browsers on one phone. */
   async phone(name: string, device = name): Promise<Page> {
+    const page = await this.emptyPhone(device);
+    await page.getByTestId("name-input").fill(name);
+    await page.getByTestId("name-submit").click();
+    await expect(page.getByTestId("tv-status")).toBeVisible();
+    return page;
+  }
+
+  /** A phone whose browser has nothing saved, as after the laptop's address changed. Stops at the first screen. */
+  async emptyPhone(device: string): Promise<Page> {
     const ctx = await this.browser.newContext({
       viewport: { width: 390, height: 844 },
       deviceScaleFactor: 2,
@@ -115,9 +124,6 @@ export class Party {
     const page = await ctx.newPage();
     await page.goto(`${this.phoneUrl}/`);
     expect(await page.evaluate(() => window.isSecureContext), "phone page must load like a real phone").toBe(false);
-    await page.getByTestId("name-input").fill(name);
-    await page.getByTestId("name-submit").click();
-    await expect(page.getByTestId("tv-status")).toBeVisible();
     return page;
   }
 }

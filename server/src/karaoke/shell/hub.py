@@ -12,19 +12,21 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
 from pydantic import TypeAdapter, ValidationError
+from starlette.requests import HTTPConnection
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from karaoke import contract as c
-from karaoke.core import SingerId
-from karaoke.party import Hello, Input, Outcome, Rejected, TvPresence
+from karaoke.core import SingerId, SongId, SongMeta
+from karaoke.party import Hello, Input, Outcome, Playing, Rejected, TvPresence
 from karaoke.shell import parse
 from karaoke.shell.loop import PartyLoop
 from karaoke.songs.catalog import Catalog
+from karaoke.songs.favourites import Favourites
 from karaoke.songs.library import Library
 
 log = logging.getLogger(__name__)
@@ -72,8 +74,10 @@ class _Conn:
 
 class Hub:
     def __init__(self, loop: PartyLoop, library: Library, catalog: Catalog, protocol: str,
-                 laptop_addresses: frozenset[str] = frozenset({"127.0.0.1", "::1"}), test_devices: bool = False) -> None:
+                 laptop_addresses: frozenset[str] = frozenset({"127.0.0.1", "::1"}), test_devices: bool = False,
+                 favourites: Favourites | None = None) -> None:
         self._loop = loop
+        self.favourites = favourites
         self._library = library
         self._catalog = catalog
         self._protocol = protocol
@@ -113,8 +117,10 @@ class Hub:
     async def _hello(self, conn: _Conn, msg: c.PhoneHello | c.TvHello | c.PhoneCommandMsg | c.TvCommandMsg | c.ClockReport) -> None:
         match msg:
             case c.PhoneHello(browser_id=browser_id, name=name):
-                conn.role, conn.singer = "phone", self._singer_of(conn.ws)
+                conn.role, conn.singer = "phone", self.device_of(conn.ws)
                 conn.name, conn.browser_id = name.strip(), browser_id
+                if self.favourites is not None:
+                    self.favourites.seen(browser_id, conn.name, conn.singer)
                 self._phones.add(conn)
                 await self._loop.submit(Hello(conn.singer, name))
                 conn.send(c.YouMsg(kind="you", singer_id=conn.singer))
@@ -133,7 +139,8 @@ class Hub:
         match msg:
             case c.PhoneCommandMsg(request_id=request_id, command=command) if conn.role == "phone":
                 assert conn.singer is not None
-                inp = parse.phone_input(command, conn.singer, self._library, self._catalog, conn.name)
+                inp = parse.phone_input(command, conn.singer, self._library, self._catalog, conn.name,
+                                        self._favourite_lookup(conn))
                 outcome = await self._submit(inp)
                 if isinstance(command, c.RenameCmd) and not isinstance(outcome, Rejected):
                     conn.name = command.name.strip()
@@ -149,10 +156,24 @@ class Hub:
             case _:
                 raise _RoleViolation(f"{msg.kind} is not allowed for role {conn.role}")
 
-    def _singer_of(self, ws: WebSocket) -> SingerId:
-        if self._test_devices and (fake := ws.cookies.get(TEST_DEVICE_COOKIE)):
+    def device_of(self, conn: HTTPConnection) -> SingerId:
+        """The phone a WebSocket or HTTP request comes from. Also the address favourites remember."""
+        if self._test_devices and (fake := conn.cookies.get(TEST_DEVICE_COOKIE)):
             return SingerId(f"net:{fake}")
-        return device_singer(ws.client.host if ws.client else None, self._laptop_addresses)
+        return device_singer(conn.client.host if conn.client else None, self._laptop_addresses)
+
+    def known_song(self, song: SongId) -> SongMeta | None:
+        """A song the party already holds by video id: playing or queued. For favouriting a queued online song."""
+        state = self._loop.state
+        if isinstance(state.now, Playing) and state.now.song.id == song:
+            return state.now.song
+        return next((e.song for e in state.queue if e.song.id == song), None)
+
+    def _favourite_lookup(self, conn: _Conn) -> Callable[[SongId], SongMeta | None]:
+        favourites, browser = self.favourites, conn.browser_id
+        if favourites is None or browser is None:
+            return lambda _: None
+        return lambda song: favourites.get(browser, song)
 
     async def _submit(self, inp: Input | parse.Unresolvable) -> Outcome:
         if isinstance(inp, parse.Unresolvable):
