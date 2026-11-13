@@ -1,6 +1,6 @@
 # Technical spec
 
-Status: Approved 2026-11-11. The section "Changes for 2026-11-12" awaits the user's approval. Built from prototype measurements. The user passed key change and word-by-word highlighting by ear and by eye on 2026-11-11.
+Status: Approved 2026-11-11. The section "Changes for 2026-11-12" was approved by the user on 2026-11-12. Built from prototype measurements. The user passed key change and word-by-word highlighting by ear and by eye on 2026-11-11.
 
 ## Stack
 
@@ -186,14 +186,18 @@ These implement the product spec's sections marked "added 2026-11-12".
 - Per-country charts, probed the same day: `get_charts` returns a Top 100 Music Videos chart and the top 40 artists for `HK`, `TW`, `JP`, `KR`, and `US`. For `CN` it returns only the global chart, because YouTube is blocked in mainland China. The `TW` artists include G.E.M. and JJ Lin, so a chart says where a singer is popular, not where they are from.
 - **Places.** Each place box is a page of shelves:
 
-  | Box | First shelf | Other shelves, from playlist search |
+  Every box shows 熱門 songs only: currently popular, not classics. The user decided this on 2026-11-12.
+
+  | Box | First shelf | Other 熱門 shelves, from playlist search |
   | --- | --- | --- |
-  | 香港 | HK Top 100 Music Videos | "粵語 熱門", "Cantopop 90s" |
-  | 台灣 | TW Top 100 Music Videos | "台灣 華語 熱門", "KKBOX 華語" |
-  | 中國 | none: no chart exists | "中國大陸 流行歌曲", "抖音 熱歌" |
-  | 日本 | JP Top 100 Music Videos | "J-Pop" |
-  | 韓國 | KR Top 100 Music Videos | "K-Pop" |
-  | 歐美 | US Top 100 Music Videos | "Pop hits" |
+  | 香港 | HK Top 100 Music Videos | "最新熱門廣東歌" |
+  | 台灣 | TW Top 100 Music Videos | "KKBOX 華語 新歌" |
+  | 中國 | none: no chart exists | "中國大陸 流行歌曲 2026", "抖音 熱歌" |
+  | 日本 | JP Top 100 Music Videos | "J-Pop 2026" |
+  | 韓國 | KR Top 100 Music Videos | "K-Pop 2026" |
+  | 歐美 | US Top 100 Music Videos | "Pop hits 2026" |
+
+  The year in a search is the current year, not a fixed 2026.
 
   Playlists by record labels and chart owners, such as KKBOX or Sony Music, are preferred over fan-made lists. Songs on a shelf go through the same song identity rules as search results, so titles and artists stay clean. Every chart and HK, TW, and mainland list mixes in singers from elsewhere. So a shelf keeps only songs whose singer belongs to that box. Assumption: a song on a shelf whose singer has no known place stays on the shelf it came from.
 - A place's shelves are cached for 6 hours in memory, so opening a box is quick.
