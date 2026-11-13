@@ -11,7 +11,7 @@ import { SearchPanel } from "./Search";
 import {
   createPhoneStore,
   loadIdentity,
-  newSingerId,
+  newBrowserId,
   saveIdentity,
   StoreContext,
   usePhone,
@@ -28,7 +28,7 @@ export function App(props: { desk?: boolean }): JSX.Element {
     return (
       <NameGate
         onDone={(name) => {
-          const id = { singerId: newSingerId(), name };
+          const id = { browserId: newBrowserId(), name };
           saveIdentity(id);
           setIdentity(id);
         }}

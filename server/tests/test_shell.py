@@ -116,3 +116,13 @@ def test_schema_export_is_stable_and_carries_the_protocol(tmp_path: Path, monkey
     assert doc["x-protocol"] == export_schema.protocol_hash()
     assert "ServerHello" in doc["$defs"] and list(doc["$defs"]) == sorted(doc["$defs"])
     assert doc["$defs"]["PhoneView"]["properties"].keys() >= {"rev", "restartOffer", "tvConnected"}
+
+
+def test_a_singer_is_the_phone_address_and_the_laptop_is_one_singer() -> None:
+    from karaoke.shell.hub import LAPTOP, device_singer
+    laptop = frozenset({"127.0.0.1", "::1", "192.168.1.20"})
+    assert device_singer("192.168.1.31", laptop) == SingerId("net:192.168.1.31")
+    assert device_singer("::ffff:192.168.1.31", laptop) == SingerId("net:192.168.1.31")
+    assert device_singer("127.0.0.1", laptop) == LAPTOP
+    assert device_singer("192.168.1.20", laptop) == LAPTOP, "a browser on the laptop by its Wi-Fi address"
+    assert device_singer(None, laptop) == LAPTOP

@@ -101,14 +101,17 @@ export class Party {
     return page;
   }
 
-  /** A fresh browser context is a fresh localStorage, so a new singer. */
-  async phone(name: string): Promise<Page> {
+  /** A fresh browser context is a new browser. A singer is a phone's Wi-Fi address, and every test phone runs on
+   *  this computer, so the fake world's test cookie stands in for the address: `device` defaults to the name.
+   *  Two pages with the same `device` are two browsers on one phone. */
+  async phone(name: string, device = name): Promise<Page> {
     const ctx = await this.browser.newContext({
       viewport: { width: 390, height: 844 },
       deviceScaleFactor: 2,
       isMobile: true,
       hasTouch: true,
     });
+    await ctx.addCookies([{ name: "karaoke-test-device", value: device, url: this.phoneUrl }]);
     const page = await ctx.newPage();
     await page.goto(`${this.phoneUrl}/`);
     expect(await page.evaluate(() => window.isSecureContext), "phone page must load like a real phone").toBe(false);

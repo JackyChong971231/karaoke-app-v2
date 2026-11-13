@@ -63,6 +63,25 @@ def test_fairness_example_from_user() -> None:
     assert order(s) == "ABCABCBB"
 
 
+def test_fairness_example_from_user_2026_11_12() -> None:
+    """A has 2 songs queued. B's song goes after A's first. A's third goes to the back. C's goes after B."""
+    s = queue_as(party(), *"AA")
+    s = queue_as(s, "B")
+    assert order(s) == "ABA"
+    s = queue_as(s, "A")
+    assert order(s) == "ABAA"
+    s = queue_as(s, "C")
+    assert order(s) == "ABCAA"
+
+
+def test_each_song_keeps_the_name_it_was_queued_with_and_fairness_ignores_names() -> None:
+    s = run(party(), QueueSong(A, song("1"), "Amy"), Rename(A, "Not Amy"), QueueSong(A, song("2"), "Not Amy"))
+    s = run(s, QueueSong(B, song("3")))
+    assert [e.singer_name for e in s.queue] == ["Amy", "B", "Not Amy"]
+    assert order(s) == "ABA", "a rename does not make A a new singer"
+    assert [e.singer_name for e in durable(s).queue] == ["Amy", "B", "Not Amy"]
+
+
 def test_fairness_history_example() -> None:
     """A has sung 3 tonight; D joins. D's round 1 goes before A's round 4."""
     s = party()

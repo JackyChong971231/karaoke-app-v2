@@ -37,6 +37,9 @@ class QueueSong:
     by: SingerId
     song: SongMeta
     """Already resolved at the boundary from a library ID or a catalog pick ID."""
+    name: str | None = None
+    """The name of the browser that queued it. Several browsers on one phone are one singer but may each have
+    their own name. None means the singer's latest name."""
 
 
 @dataclass(frozen=True, slots=True)

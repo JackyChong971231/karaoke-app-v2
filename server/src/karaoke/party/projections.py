@@ -27,7 +27,7 @@ def durable(state: PartyState) -> DurableSnapshot:
     entries: tuple[QueueEntry, ...] = state.queue
     if isinstance(state.now, Playing) and isinstance(state.now.origin, FromQueue):
         entries = (state.now.origin.entry, *entries)
-    saved = tuple(SavedEntry(e.song, e.singer, state.singers.get(e.singer, "")) for e in entries)
+    saved = tuple(SavedEntry(e.song, e.singer, e.singer_name) for e in entries)
     return DurableSnapshot(queue=saved, settings=state.settings)
 
 

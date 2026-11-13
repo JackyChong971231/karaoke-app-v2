@@ -81,7 +81,8 @@ async def serve(args: argparse.Namespace) -> None:
 
     store = Store(data / "party.json")
     journal = Journal(data / "journal" / f"{time.strftime('%Y%m%d-%H%M%S')}.jsonl")
-    join_url = f"http://{lan_ip()}:{args.port}/"
+    lan = lan_ip()
+    join_url = f"http://{lan}:{args.port}/"
 
     loop_ref: list[PartyLoop] = []
 
@@ -91,7 +92,8 @@ async def serve(args: argparse.Namespace) -> None:
     preparer = Preparer(library, catalog, stages, on_ready=on_ready, on_board_change=lambda: loop_ref[0].refresh())
     loop = PartyLoop(initial_state(store.load()), store, journal, preparer, library, join_url)
     loop_ref.append(loop)
-    hub = Hub(loop, library, catalog, protocol_hash())
+    hub = Hub(loop, library, catalog, protocol_hash(),
+              laptop_addresses=frozenset({"127.0.0.1", "::1", lan}), test_devices=fake)
     loop.attach_hub(hub)
 
     importer = None

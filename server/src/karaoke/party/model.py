@@ -40,6 +40,9 @@ class QueueEntry:
     round: int
     """Fixed when the entry is added: sung tonight + already queued + 1. Never recomputed,
     except once when a kept queue is renumbered at restart (see fairness.renumber_kept)."""
+    singer_name: str
+    """The name the singer had when they queued this song. A later rename does not change it, so a 咪霸 who
+    renames between songs shows each song under the name used, while fairness counts by `singer` (the phone)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,7 +131,8 @@ class PartyState:
     now: Now
     fairness: Fairness
     singers: Mapping[SingerId, str]
-    """Display names, from Hello/Rename. Names live on the phone; this is the latest one seen."""
+    """Latest display name per singer, from Hello/Rename. A singer is a phone (its Wi-Fi address), not a name.
+    Queue entries carry their own name; this map is the fallback and the record of who has said hello."""
     ready: frozenset[SongId]
     """Songs known to be fully in the library. Fed only by SongReady facts from the Preparer.
     The reducer never guesses readiness; one path for library songs and freshly prepared ones."""

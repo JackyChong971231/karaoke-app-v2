@@ -13,25 +13,23 @@ import type { Outcome, PhoneCommand, PhoneView } from "../wire/types";
 import { PickController } from "./pickVideo";
 import { rejectText } from "./text";
 
+/** `browserId` keys this browser's favourites. The singer (for fairness) is the phone's Wi-Fi address, which the
+ *  server reads from the connection and reports back in a "you" message. */
 export interface Identity {
-  singerId: string;
+  browserId: string;
   name: string;
 }
 
 const IDENTITY_KEY = "karaoke.identity";
 let memoryIdentity: Identity | null = null;
 
-function isIdentity(x: unknown): x is Identity {
-  return (
-    typeof x === "object" &&
-    x !== null &&
-    "singerId" in x &&
-    typeof x.singerId === "string" &&
-    x.singerId !== "" &&
-    "name" in x &&
-    typeof x.name === "string" &&
-    x.name.trim() !== ""
-  );
+/** Accepts the stored shape, including the older `singerId` field name, so a phone keeps its ID. */
+function toIdentity(x: unknown): Identity | null {
+  if (typeof x !== "object" || x === null || !("name" in x) || typeof x.name !== "string" || x.name.trim() === "") {
+    return null;
+  }
+  const id = "browserId" in x ? x.browserId : "singerId" in x ? x.singerId : null;
+  return typeof id === "string" && id !== "" ? { browserId: id, name: x.name } : null;
 }
 
 /** localStorage, with an in-memory fallback for private mode. */
@@ -39,8 +37,7 @@ export function loadIdentity(): Identity | null {
   try {
     const raw = localStorage.getItem(IDENTITY_KEY);
     if (raw === null) return memoryIdentity;
-    const parsed: unknown = JSON.parse(raw);
-    return isIdentity(parsed) ? parsed : memoryIdentity;
+    return toIdentity(JSON.parse(raw)) ?? memoryIdentity;
   } catch {
     return memoryIdentity;
   }
@@ -57,7 +54,7 @@ export function saveIdentity(id: Identity): void {
 
 // Phones load the page over plain http on the LAN, which is not a secure context, so crypto.randomUUID is
 // undefined there. getRandomValues works everywhere.
-export function newSingerId(): string {
+export function newBrowserId(): string {
   const b = crypto.getRandomValues(new Uint8Array(16));
   b[6] = ((b[6] ?? 0) & 0x0f) | 0x40;
   b[8] = ((b[8] ?? 0) & 0x3f) | 0x80;
@@ -75,6 +72,8 @@ export interface PhoneState {
   view: PhoneView | null;
   link: Link;
   identity: Identity;
+  /** This phone's singer id from the server ("net:<address>"), or null before the first hello is answered. */
+  me: string | null;
   /** Controls showing a spinner until their reply arrives, keyed by a control id such as "skip". */
   pending: ReadonlySet<string>;
   toasts: readonly Toast[];
@@ -106,6 +105,7 @@ export function createPhoneStore(initial: Identity): PhoneStore {
     view: socket.view(),
     link: socket.link(),
     identity,
+    me: socket.me(),
     pending: new Set(),
     toasts: [],
     reorder: null,
@@ -120,7 +120,8 @@ export function createPhoneStore(initial: Identity): PhoneStore {
   socket.subscribe(() => {
     const view = socket.view();
     const link = socket.link();
-    if (view !== state.view || link !== state.link) set({ view, link });
+    const me = socket.me();
+    if (view !== state.view || link !== state.link || me !== state.me) set({ view, link, me });
   });
 
   const toast = (message: string, tone: Toast["tone"] = "info"): void => {
@@ -182,7 +183,8 @@ export function createPhoneStore(initial: Identity): PhoneStore {
       rev: state.view?.rev ?? null,
       pickFlow: store.pick.get().step,
       pendingRequests: [...state.pending],
-      singerId: identity.singerId,
+      browserId: identity.browserId,
+      singerId: state.me,
     }),
   };
   return store;

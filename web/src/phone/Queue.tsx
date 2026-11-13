@@ -32,7 +32,7 @@ function ordered(queue: readonly EntryView[], reorder: readonly number[] | null)
 
 export function Queue(props: { onFindSong: () => void }): JSX.Element {
   const store = useStore();
-  const { view, reorder, identity, pending } = usePhone();
+  const { view, reorder, me, pending } = usePhone();
   const [menuFor, setMenuFor] = useState<number | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -96,7 +96,7 @@ export function Queue(props: { onFindSong: () => void }): JSX.Element {
                 key={e.entryId}
                 entry={e}
                 index={i}
-                mine={e.singerId === identity.singerId}
+                mine={me !== null && e.singerId === me}
                 busy={[...pending].some((p) => p.startsWith(`entry:${String(e.entryId)}:`))}
                 onMenu={() => { setMenuFor(e.entryId); }}
               />

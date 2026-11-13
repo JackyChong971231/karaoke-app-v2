@@ -29,6 +29,24 @@ test("two phones queue and the fairness order shows", async ({ party }) => {
   await expect(bob.getByTestId("tv-status")).toHaveText(/TV on/);
 });
 
+test("a second browser with a new name on the same phone is still one singer", async ({ party }) => {
+  const tv = await party.tv();
+  await waitForTv(tv, (x) => x.stage.kind === "playing", "filler started");
+  const hog = await party.phone("Hog", "phone-h");
+  const ben = await party.phone("Ben");
+  const disguise = await party.phone("New Guy", "phone-h");
+  await hog.getByTestId("pause").click();
+  await waitForTv(tv, (x) => x.paused, "filler paused");
+
+  await queueLibrary(hog, "Morning Sun");
+  await queueLibrary(disguise, "河流");
+  await queueLibrary(ben, "Night Drive");
+
+  await disguise.getByTestId("tab-queue").click();
+  await expect(disguise.getByTestId("queue-row-title")).toHaveText(["Morning Sun", "Night Drive", "河流"]);
+  await expect(disguise.getByTestId("queue-row-singer")).toHaveText([/Hog \(you\)/, /^\s*Ben$/, /New Guy \(you\)/]);
+});
+
 test("skip advances exactly one song with a double tap", async ({ party }) => {
   const tv = await party.tv();
   const filler = await waitForTv(tv, (x) => x.stage.kind === "playing", "filler started");

@@ -276,7 +276,9 @@ TvCommand = Annotated[TrackEndedCmd | TrackFailedCmd | ResolveRestartCmd, Field(
 
 class PhoneHello(Wire):
     kind: Literal["phoneHello"]
-    singer_id: str
+    browser_id: str
+    """The random ID this browser keeps. It keys favourites only. The singer is the phone's Wi-Fi address,
+    which the server reads from the connection, so a private tab or a cleared browser is the same singer."""
     name: str
 
 
@@ -354,6 +356,14 @@ class SupersededMsg(Wire):
     kind: Literal["superseded"]
 
 
+class YouMsg(Wire):
+    """Server -> one phone, after its hello: which singer this connection is. The PhoneView is shared by every
+    phone, so this is how a phone knows which queue entries are its own."""
+
+    kind: Literal["you"]
+    singer_id: str
+
+
 class ServerHello(Wire):
     """First message on every connection. A page whose generated PROTOCOL differs reloads itself, so a page
     built against an older contract never talks to a newer server."""
@@ -363,7 +373,7 @@ class ServerHello(Wire):
 
 
 ServerMessage = Annotated[
-    ServerHello | ReplyMsg | PhoneViewMsg | TvViewMsg | ClockMsg | SupersededMsg, Field(discriminator="kind")
+    ServerHello | YouMsg | ReplyMsg | PhoneViewMsg | TvViewMsg | ClockMsg | SupersededMsg, Field(discriminator="kind")
 ]
 
 

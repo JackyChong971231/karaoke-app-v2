@@ -61,6 +61,7 @@ TV --clock (4 Hz telemetry)--> Hub --> phones        (never reduced)
 ### Rules
 
 - **Identity.** `PlayId` increases each time a song starts. Pause, skip, key, and track-ended carry it. A stale `PlayId` is rejected, so a double skip advances one song. Setters are absolute, never toggles.
+- **Singer.** A singer is a phone: `net:<Wi-Fi address>`, read by the hub from the connection. Any browser on the laptop is `net:laptop`. The browser's stored ID (`browserId`) keys favourites only. Each queue entry keeps the name it was queued with. The fake world reads a `karaoke-test-device` cookie instead of the address, because every test phone runs on one computer.
 - **Fairness.** `round = sung tonight + queued + 1`, fixed when the entry is added. A song counts as sung when it starts. A new entry goes right after the last entry with a smaller `(round, join index)`. Manual moves are never undone.
 - **Turn order.** Start the first ready entry in queue order. If none is ready, play a filler.
 - **Filler.** A random library song not played in the last 20 fillers. When every library song is among them, the one played longest ago, so a small library rotates. A TV that fails to load a song waits 3 s before reporting it. It is `Playing(origin=Filler())`, not a queue entry. A newly ready queue song does not interrupt it.

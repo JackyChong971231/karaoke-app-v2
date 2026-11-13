@@ -30,14 +30,16 @@ class Unresolvable:
     reason: RejectReason
 
 
-def phone_input(cmd: c.PhoneCommand, by: SingerId, library: Library, catalog: Catalog) -> Input | Unresolvable:
+def phone_input(cmd: c.PhoneCommand, by: SingerId, library: Library, catalog: Catalog,
+                name: str | None = None) -> Input | Unresolvable:
+    """`by` is the phone (from the connection's address); `name` is the sending browser's current name."""
     match cmd:
         case c.QueueLibraryCmd(song_id=song_id):
             rec = library.get(SongId(song_id))
-            return Unresolvable("unknown_entry") if rec is None else QueueSong(by, rec.meta)
+            return Unresolvable("unknown_entry") if rec is None else QueueSong(by, rec.meta, name)
         case c.QueuePickCmd(pick_id=pick_id):
             meta = catalog.pick(PickId(pick_id))
-            return Unresolvable("pick_expired") if meta is None else QueueSong(by, meta)
+            return Unresolvable("pick_expired") if meta is None else QueueSong(by, meta, name)
         case c.RemoveCmd(entry_id=entry_id):
             return RemoveEntry(by, EntryId(entry_id))
         case c.MoveCmd(entry_id=entry_id, to=to):

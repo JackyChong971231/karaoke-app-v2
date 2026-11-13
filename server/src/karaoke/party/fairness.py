@@ -61,5 +61,6 @@ def renumber_kept(offer: tuple[SavedEntry, ...], first_entry_id: EntryId) -> tup
         if saved.singer not in counts:
             join_order.append(saved.singer)
         counts[saved.singer] = counts.get(saved.singer, 0) + 1
-        entries.append(QueueEntry(EntryId(first_entry_id + i), saved.song, saved.singer, counts[saved.singer]))
+        entries.append(QueueEntry(EntryId(first_entry_id + i), saved.song, saved.singer, counts[saved.singer],
+                                  saved.singer_name))
     return tuple(entries), Fairness(join_order=tuple(join_order), sung={})

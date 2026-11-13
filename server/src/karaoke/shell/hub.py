@@ -34,11 +34,32 @@ _INTERNAL_ERROR = 1011
 _RESUME_MEMORY = 8
 
 
+LAPTOP = SingerId("net:laptop")
+TEST_DEVICE_COOKIE = "karaoke-test-device"
+"""Fake world only: tests run every phone from one computer, so a cookie stands in for each phone's address."""
+
+
+def device_singer(host: str | None, laptop_addresses: frozenset[str]) -> SingerId:
+    """A singer is a phone, recognised by its address on the home Wi-Fi, not by the ID its browser stores.
+    A private tab, a cleared browser, or another browser on the same phone is the same singer. Any browser on
+    the laptop itself (the control page) is one singer, `net:laptop`."""
+    if not host:
+        return LAPTOP
+    if host.startswith("::ffff:"):
+        host = host.removeprefix("::ffff:")
+    if host in laptop_addresses:
+        return LAPTOP
+    return SingerId(f"net:{host}")
+
+
 @dataclass(eq=False)
 class _Conn:
     ws: WebSocket
     role: Literal["phone", "tv"] | None = None
     singer: SingerId | None = None
+    name: str | None = None
+    """This browser's current name. Queued songs carry it."""
+    browser_id: str | None = None
     last_rev: int | None = None
     outbox: asyncio.Queue[c.Wire | None] = field(default_factory=asyncio.Queue)
 
@@ -50,11 +71,14 @@ class _Conn:
 
 
 class Hub:
-    def __init__(self, loop: PartyLoop, library: Library, catalog: Catalog, protocol: str) -> None:
+    def __init__(self, loop: PartyLoop, library: Library, catalog: Catalog, protocol: str,
+                 laptop_addresses: frozenset[str] = frozenset({"127.0.0.1", "::1"}), test_devices: bool = False) -> None:
         self._loop = loop
         self._library = library
         self._catalog = catalog
         self._protocol = protocol
+        self._laptop_addresses = laptop_addresses
+        self._test_devices = test_devices
         self._phones: set[_Conn] = set()
         self._tv: _Conn | None = None
         self._positions: dict[int, float] = {}
@@ -88,10 +112,12 @@ class Hub:
 
     async def _hello(self, conn: _Conn, msg: c.PhoneHello | c.TvHello | c.PhoneCommandMsg | c.TvCommandMsg | c.ClockReport) -> None:
         match msg:
-            case c.PhoneHello(singer_id=singer_id, name=name):
-                conn.role, conn.singer = "phone", SingerId(singer_id)
+            case c.PhoneHello(browser_id=browser_id, name=name):
+                conn.role, conn.singer = "phone", self._singer_of(conn.ws)
+                conn.name, conn.browser_id = name.strip(), browser_id
                 self._phones.add(conn)
                 await self._loop.submit(Hello(conn.singer, name))
+                conn.send(c.YouMsg(kind="you", singer_id=conn.singer))
             case c.TvHello():
                 conn.role = "tv"
                 old, self._tv = self._tv, conn
@@ -107,8 +133,11 @@ class Hub:
         match msg:
             case c.PhoneCommandMsg(request_id=request_id, command=command) if conn.role == "phone":
                 assert conn.singer is not None
-                inp = parse.phone_input(command, conn.singer, self._library, self._catalog)
-                conn.send(_reply(request_id, await self._submit(inp)))
+                inp = parse.phone_input(command, conn.singer, self._library, self._catalog, conn.name)
+                outcome = await self._submit(inp)
+                if isinstance(command, c.RenameCmd) and not isinstance(outcome, Rejected):
+                    conn.name = command.name.strip()
+                conn.send(_reply(request_id, outcome))
             case c.TvCommandMsg(request_id=request_id, command=command) if conn.role == "tv":
                 conn.send(_reply(request_id, await self._submit(parse.tv_input(command))))
             case c.ClockReport(play_id=play_id, position_s=position_s, paused=paused) if conn.role == "tv":
@@ -119,6 +148,11 @@ class Hub:
                     phone.send(relay)
             case _:
                 raise _RoleViolation(f"{msg.kind} is not allowed for role {conn.role}")
+
+    def _singer_of(self, ws: WebSocket) -> SingerId:
+        if self._test_devices and (fake := ws.cookies.get(TEST_DEVICE_COOKIE)):
+            return SingerId(f"net:{fake}")
+        return device_singer(ws.client.host if ws.client else None, self._laptop_addresses)
 
     async def _submit(self, inp: Input | parse.Unresolvable) -> Outcome:
         if isinstance(inp, parse.Unresolvable):

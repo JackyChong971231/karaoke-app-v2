@@ -40,8 +40,11 @@ class Client:
         self._reader = asyncio.create_task(self._read())
 
     @classmethod
-    async def open(cls, url: str, name: str, hello: dict[str, Any]) -> Client:
-        client = cls(await connect(url.replace("http", "ws", 1) + "/ws"), name)
+    async def open(cls, url: str, name: str, hello: dict[str, Any], device: str | None = None) -> Client:
+        """Every client runs on this computer, so the fake world's test cookie gives each phone its own address.
+        `device` defaults to the client's name: one name, one phone."""
+        cookie = {"Cookie": f"karaoke-test-device={device or name}"}
+        client = cls(await connect(url.replace("http", "ws", 1) + "/ws", additional_headers=cookie), name)
         await client.ws.send(json.dumps(hello))
         await client.until(lambda v: True)
         return client
@@ -103,8 +106,8 @@ def letters(view: dict[str, Any]) -> str:
 
 async def party(url: str, log: Callable[[str], None]) -> None:
     tv = await Client.open(url, "tv", {"kind": "tvHello"})
-    amy = await Client.open(url, "amy", {"kind": "phoneHello", "singerId": "phone-amy", "name": "Amy"})
-    ben = await Client.open(url, "ben", {"kind": "phoneHello", "singerId": "phone-ben", "name": "Ben"})
+    amy = await Client.open(url, "amy", {"kind": "phoneHello", "browserId": "browser-amy", "name": "Amy"})
+    ben = await Client.open(url, "ben", {"kind": "phoneHello", "browserId": "browser-ben", "name": "Ben"})
     assert tv.protocol and tv.protocol == amy.protocol
     log(f"connected: 1 TV + 2 phones, protocol {tv.protocol}")
 
@@ -184,7 +187,7 @@ async def party(url: str, log: Callable[[str], None]) -> None:
     assert status == 206 and len(body) == 100
     log(f"TV media served with Range: /media/{playing}/video.mp4 -> 206, 100 bytes")
 
-    eve = await Client.open(url, "eve", {"kind": "phoneHello", "singerId": "phone-eve", "name": "Eve"})
+    eve = await Client.open(url, "eve", {"kind": "phoneHello", "browserId": "browser-eve", "name": "Eve"})
     await eve.ws.send(json.dumps({"kind": "tvCommand", "requestId": 1, "command": {"kind": "trackEnded", "playId": 1}}))
     await asyncio.wait_for(eve.ws.wait_closed(), 5)
     assert eve.ws.close_code == 1008
@@ -257,12 +260,45 @@ def say(line: str) -> None:
 def test_party_over_the_wire(server: str) -> None:
     asyncio.run(party(server, say))
     state = get(f"{server}/test/state")
-    assert state["party"]["fairness"]["sung"] == {"phone-amy": 2}
+    assert state["party"]["fairness"]["sung"] == {"net:amy": 2}
+
+
+async def mic_hog(url: str) -> None:
+    """Spec "One phone is one singer": a 咪霸 renames between songs and opens a second browser on the same phone,
+    hoping to look like new singers. Fairness still counts one phone; each song shows the name it was queued with."""
+    tv = await Client.open(url, "tv", {"kind": "tvHello"})
+    hog = await Client.open(url, "hog", {"kind": "phoneHello", "browserId": "b1", "name": "Hog"}, device="phone-h")
+    ben = await Client.open(url, "ben", {"kind": "phoneHello", "browserId": "b2", "name": "Ben"})
+    hog_tab = await Client.open(url, "tab", {"kind": "phoneHello", "browserId": "b3", "name": "Not Hog"},
+                                device="phone-h")
+    await hog.until(lambda v: v["now"] is not None)
+    assert await hog.send({"kind": "setPaused", "playId": hog.view["now"]["playId"], "paused": True}) \
+        == {"kind": "accepted"}  # type: ignore[index]
+
+    async def queue(phone: Client, title: str) -> None:
+        hit = (await aget(f"{url}/api/search?q={urllib.request.quote(title)}"))["library"][0]
+        assert await phone.send({"kind": "queueLibrary", "songId": hit["song"]["songId"]}) == {"kind": "accepted"}
+
+    await queue(hog, "Morning Sun")
+    assert await hog.send({"kind": "rename", "name": "Fresh Name"}) == {"kind": "accepted"}
+    await queue(hog, "河流")
+    await queue(hog_tab, "Night Drive")
+    await queue(ben, "Morning Sun")
+    v = await ben.until(lambda v: len(v["queue"]) == 4)
+    names = [e["singerName"] for e in v["queue"]]
+    assert names == ["Hog", "Ben", "Fresh Name", "Not Hog"], names
+    assert len({e["singerId"] for e in v["queue"] if e["singerName"] != "Ben"}) == 1
+    for c in (tv, hog, ben, hog_tab):
+        await c.close()
+
+
+def test_renaming_or_a_second_browser_on_one_phone_is_still_one_singer(server: str) -> None:
+    asyncio.run(mic_hog(server))
 
 
 async def queue_songs(url: str) -> None:
-    amy = await Client.open(url, "amy", {"kind": "phoneHello", "singerId": "phone-amy", "name": "Amy"})
-    ben = await Client.open(url, "ben", {"kind": "phoneHello", "singerId": "phone-ben", "name": "Ben"})
+    amy = await Client.open(url, "amy", {"kind": "phoneHello", "browserId": "browser-amy", "name": "Amy"})
+    ben = await Client.open(url, "ben", {"kind": "phoneHello", "browserId": "browser-ben", "name": "Ben"})
     for phone, title in ((amy, "Morning Sun"), (ben, "Night Drive"), (amy, "河流")):
         hit = (await aget(f"{url}/api/search?q={urllib.request.quote(title)}"))["library"][0]
         assert await phone.send({"kind": "queueLibrary", "songId": hit["song"]["songId"]}) == {"kind": "accepted"}
@@ -271,8 +307,8 @@ async def queue_songs(url: str) -> None:
 
 async def answer_restart(url: str) -> None:
     tv = await Client.open(url, "tv", {"kind": "tvHello"})
-    amy = await Client.open(url, "amy", {"kind": "phoneHello", "singerId": "phone-amy", "name": "Amy"})
-    ben = await Client.open(url, "ben", {"kind": "phoneHello", "singerId": "phone-ben", "name": "Ben"})
+    amy = await Client.open(url, "amy", {"kind": "phoneHello", "browserId": "browser-amy", "name": "Amy"})
+    ben = await Client.open(url, "ben", {"kind": "phoneHello", "browserId": "browser-ben", "name": "Ben"})
     assert tv.view and tv.view["restartOffer"] and ben.view and ben.view["restartOffer"]
     offered = [e["title"] for e in ben.view["restartOffer"]["entries"]]
     assert offered == ["Morning Sun", "Night Drive", "河流"], "the playing song is saved at the front"

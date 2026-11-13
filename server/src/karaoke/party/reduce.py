@@ -66,11 +66,12 @@ def reduce(state: PartyState, inp: Input) -> Step:
         case QueueSong() | RemoveEntry() | MoveEntry() if isinstance(state.phase, AwaitingRestartChoice):
             return _reject(state, "awaiting_restart_choice")
 
-        case QueueSong(by, song):
+        case QueueSong(by, song, name):
             if by not in state.singers:
                 return _reject(state, "unknown_singer")
+            shown = (name or "").strip()[:NAME_MAX] or state.singers[by]
             joined = fairness.with_joined(state.fairness, by)
-            entry = QueueEntry(state.next_entry_id, song, by, fairness.next_round(joined, state.queue, by))
+            entry = QueueEntry(state.next_entry_id, song, by, fairness.next_round(joined, state.queue, by), shown)
             return _ok(_settle(replace(
                 state,
                 queue=fairness.insert_fairly(state.queue, entry, joined.join_order),

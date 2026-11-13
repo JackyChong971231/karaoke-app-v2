@@ -50,7 +50,7 @@ def _restart_offer(state: PartyState) -> c.RestartOfferView | None:
 def _singer_name(state: PartyState, now: Playing) -> str | None:
     match now.origin:
         case FromQueue(entry):
-            return state.singers.get(entry.singer, "")
+            return entry.singer_name
         case Filler():
             return None
 
@@ -70,7 +70,7 @@ def phone_view(rev: int, state: PartyState, board: Mapping[SongId, PrepStatus], 
         queue=[
             c.EntryView(
                 entry_id=e.id, song=song_view(e.song), singer_id=e.singer,
-                singer_name=state.singers.get(e.singer, ""), readiness=readiness(e.song.id, state, board),
+                singer_name=e.singer_name, readiness=readiness(e.song.id, state, board),
             )
             for e in state.queue
         ],
@@ -96,7 +96,7 @@ def tv_view(rev: int, state: PartyState, resume_at: Mapping[int, float], join_ur
         vocal_level=state.settings.vocal_level,
         av_offset_s=state.settings.av_offset_s,
         up_next=c.UpNext(
-            title=first.song.title, singer_name=state.singers.get(first.singer, ""),
+            title=first.song.title, singer_name=first.singer_name,
             ready=first.song.id in state.ready,
         ) if first else None,
         join_url=join_url,

@@ -39,15 +39,18 @@ export interface PartySocket<View, Command> {
   /** TV only: telemetry, not a command, so there is no reply. */
   reportClock(playId: number, positionS: number, paused: boolean): void;
   link: () => Link;
+  /** Phones only: the singer id the server assigned this connection, from its "you" message. */
+  me: () => string | null;
 }
 
 export interface PhoneIdentityHello {
-  singerId: string;
+  browserId: string;
   name: string;
 }
 
 const SERVER_KINDS: ReadonlySet<string> = new Set<ServerMessage["kind"]>([
   "serverHello",
+  "you",
   "reply",
   "phoneView",
   "tvView",
@@ -99,6 +102,7 @@ function connect<View extends { rev: number }, Command>(options: {
   let acceptAnyRev = true;
   let clockSample: ClockSample | null = null;
   let link: Link = "connecting";
+  let me: string | null = null;
   let nextRequestId = 1;
   let backoffMs = 500;
 
@@ -134,6 +138,12 @@ function connect<View extends { rev: number }, Command>(options: {
       switch (msg.kind) {
         case "serverHello":
           if (msg.protocol !== PROTOCOL) reloadOnce(msg.protocol);
+          return;
+        case "you":
+          if (me !== msg.singerId) {
+            me = msg.singerId;
+            notify();
+          }
           return;
         case "phoneView":
         case "tvView": {
@@ -209,6 +219,7 @@ function connect<View extends { rev: number }, Command>(options: {
       }
     },
     link: () => link,
+    me: () => me,
   };
 }
 
