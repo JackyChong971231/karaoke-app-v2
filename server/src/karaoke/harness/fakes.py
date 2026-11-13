@@ -77,6 +77,31 @@ LIBRARY_VIDEOS: tuple[tuple[str, str, tuple[_Video, ...]], ...] = (
 so the library songs never also appear as online songs."""
 
 
+_Track = tuple[str, str, str, str]
+"""(video id, video title, artist id, artist name), as a chart or playlist lists a music video."""
+
+CHARTS: dict[str, tuple[_Track, ...]] = {
+    "HK": (
+        ("fkomv000002", "測試歌手《測試之歌》Official MV", "UCfakeArtistB", "測試歌手"),
+        ("fkkpop00001", "NEON (Official MV)", "UCfakeIdol", "Fake Idol"),
+        ("fklib000002", "圖書館歌手 - 河流 (Official Music Video)", "UCfakeLibSinger", "圖書館歌手"),
+    ),
+    "US": (
+        ("fkomv000001", "Fake Artist - Fake Song One (Official Music Video)", "UCfakeArtistA", "Fake Artist"),
+        ("fkomv000005", "Fake Artist - Second Fake Hit (Official Music Video)", "UCfakeArtistA", "Fake Artist"),
+    ),
+}
+"""The fake world's charts. HK carries a K-pop track that the 香港 box must drop. Other countries have none."""
+
+PLAYLISTS: dict[str, tuple[str, str, str, tuple[_Track, ...]]] = {
+    "fk-pl-canto": ("廣東歌", "最新熱門廣東歌", "warnermusichk", (
+        ("fklib000002", "河流", "UCfakeLibSinger", "圖書館歌手"),
+        ("fkomv000002", "測試之歌", "UCfakeArtistB", "測試歌手"),
+    )),
+}
+"""Playlist id -> (query word it answers, title, author, tracks)."""
+
+
 def thumb(video_id: str) -> str:
     """Thumbnails are served by /test/thumb, so the pick-a-video grid renders with no network."""
     return f"/test/thumb/{video_id}.svg"
@@ -120,6 +145,32 @@ class FakeYouTubeMusic:
     def track(self, video: SongId, language: str) -> dict[str, Any] | None:
         song = next((s for s in CATALOG if video == s.atv or any(v.video_id == video for v in s.videos)), None)
         return {**self._song(song, language), "videoId": video} if song else None
+
+    def charts(self, country: str) -> dict[str, Any]:
+        tracks = CHARTS.get(country)
+        if tracks is None:
+            return {"videos": [], "artists": []}
+        artists = {a: n for _, _, a, n in tracks}
+        return {
+            "videos": [{"title": f"Trending {country}", "playlistId": f"fk-trend-{country}"},
+                       {"title": f"{country} 熱門 Top 100", "playlistId": f"fk-chart-{country}"}],
+            "artists": [{"title": n, "browseId": a, "thumbnails": [{"url": thumb(a), "width": 120}]}
+                        for a, n in artists.items()],
+        }
+
+    def playlists(self, query: str) -> list[dict[str, Any]]:
+        return [{"title": title, "author": author, "browseId": f"VL{pid}", "resultType": "playlist"}
+                for pid, (q, title, author, _) in PLAYLISTS.items() if q in query]
+
+    def playlist(self, playlist_id: str, limit: int) -> list[dict[str, Any]]:
+        pid = playlist_id.removeprefix("VL")
+        if pid.startswith("fk-chart-"):
+            tracks = CHARTS.get(pid.removeprefix("fk-chart-"), ())
+        else:
+            tracks = PLAYLISTS[pid][3] if pid in PLAYLISTS else ()
+        return [{"videoId": v, "title": t, "videoType": "MUSIC_VIDEO_TYPE_OMV", "artists": [{"name": n, "id": a}],
+                 "thumbnails": [{"url": thumb(v), "width": 320}], **_duration()}
+                for v, t, a, n in tracks][:limit]
 
     @staticmethod
     def _song(s: _Song, language: str) -> dict[str, Any]:

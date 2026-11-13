@@ -3,7 +3,11 @@
     GET  /                          -> phone page        GET /tv -> TV page        GET /import -> import review page
     WS   /ws                        -> Hub.serve
     GET  /api/search?q=             -> contract.SearchResponse          (Catalog.search)
-    GET  /api/artist/{artist_id}    -> contract.ArtistResponse          (Catalog.artist)
+    GET  /api/artist/{artist_id}    -> contract.ArtistResponse          (Catalog.artist, plus the singer's place)
+    GET  /api/browse                -> contract.BrowseResponse          (the place boxes)
+    GET  /api/place/{place_id}      -> contract.PlaceResponse           (Browse.page: 熱門 shelves, library, singers)
+    GET  /api/ready                 -> contract.ReadyResponse           (every library song, newest first)
+    POST /api/artist-place          -> contract.ArtistPlaceRequest      (control page: where a singer is from)
     GET  /api/video-choice?key=     -> contract.VideoChoiceResponse     (Catalog.resolve_video; import page)
     GET  /api/video-options?key=    -> contract.ChooseVideoResponse     (Catalog.video_options; phones; key may be lib:<id>)
     GET  /api/favourites?browser=   -> contract.FavouritesResponse      (Favourites; one list per browser)
@@ -36,10 +40,11 @@ from starlette.routing import BaseRoute, Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 
 from karaoke import contract as c
-from karaoke.core import ArtistId, SongId, SongMeta
+from karaoke.core import ArtistId, ArtistRef, SongId, SongMeta
 from karaoke.importer import ImportService, PlanItem
 from karaoke.shell.hub import Hub
 from karaoke.shell.views import board_readiness, song_view
+from karaoke.songs.browse import PLACE_BY_ID, PLACES, Browse
 from karaoke.songs.catalog import (
     Catalog, ChooseVideo, LibraryHit, OfficialVideo, OnlineKey, OnlineSong, OnlineUnavailable, PickId,
     UnknownOnlineKey, VideoResolution,
@@ -63,6 +68,7 @@ class Services:
     preparer: Preparer
     importer: ImportService | None
     web_dist: Path
+    browse: Browse | None = None
     background: set[asyncio.Task[None]] = field(default_factory=set)
 
 
@@ -75,10 +81,46 @@ def routes(s: Services) -> list[BaseRoute]:
 
     async def artist(request: Request) -> Response:
         page = await s.catalog.artist(ArtistId(request.path_params["artist_id"]))
+        places = s.browse.places if s.browse else None
         return _json(c.ArtistResponse(
             artist=page.artist.name, artist_id=page.artist.id, library=_lib_hits(page.library),
             online=_online(page.online),
+            place_id=places.place_of(page.artist.id) if places else None,
+            place_chosen=places.chosen(page.artist.id) if places else False,
         ))
+
+    # ---- browse by place ----
+
+    async def browse(request: Request) -> Response:
+        return _json(c.BrowseResponse(
+            places=[c.PlaceSummary(place_id=p.id, label=p.label) for p in PLACES], ready_count=lib.count()))
+
+    async def place(request: Request) -> Response:
+        place_id = request.path_params["place_id"]
+        if s.browse is None or place_id not in PLACE_BY_ID:
+            return PlainTextResponse("unknown place", status_code=404)
+        page = await s.browse.page(place_id)
+        return _json(c.PlaceResponse(
+            place_id=page.place.id, label=page.place.label,
+            shelves=[c.ShelfView(title=sh.title, items=[_shelf_item(i) for i in sh.items]) for sh in page.shelves],
+            library=_lib_hits(page.library),
+            singers=[c.SingerView(artist_id=x.artist.id, name=x.artist.name, photo_url=x.photo_url) for x in page.singers],
+            online_ok=page.online_ok,
+        ))
+
+    async def ready(request: Request) -> Response:
+        hits = tuple(LibraryHit(r.meta, r.lyrics_source == "transcribed") for r in lib.newest())
+        return _json(c.ReadyResponse(songs=_lib_hits(hits)))
+
+    async def artist_place(request: Request) -> Response:
+        try:
+            req = c.ArtistPlaceRequest.model_validate_json(await request.body())
+        except ValidationError as e:
+            return PlainTextResponse(str(e), status_code=422)
+        if s.browse is None:
+            return PlainTextResponse("browse is off", status_code=404)
+        s.browse.places.choose(ArtistRef(ArtistId(req.artist_id), req.name), req.place_id)
+        return Response(status_code=204)
 
     async def video_choice(request: Request) -> Response:
         key = request.query_params.get("key")
@@ -218,6 +260,10 @@ def routes(s: Services) -> list[BaseRoute]:
         WebSocketRoute("/ws", s.hub.serve),
         Route("/api/search", search),
         Route("/api/artist/{artist_id}", artist),
+        Route("/api/browse", browse),
+        Route("/api/place/{place_id}", place),
+        Route("/api/ready", ready),
+        Route("/api/artist-place", artist_place, methods=["POST"]),
         Route("/api/video-choice", video_choice),
         Route("/api/video-options", video_options),
         Route("/api/favourites", favourites),
@@ -254,6 +300,14 @@ def _online(online: tuple[OnlineSong, ...] | OnlineUnavailable) -> c.OnlineOk | 
                         duration_s=o.duration_s, thumbnail_url=o.thumbnail_url)
         for o in online
     ])
+
+
+def _shelf_item(item: LibraryHit | OnlineSong) -> c.LibraryShelfItem | c.OnlineShelfItem:
+    if isinstance(item, LibraryHit):
+        return c.LibraryShelfItem(kind="library", hit=_lib_hits((item,))[0])
+    online = _online((item,))
+    assert isinstance(online, c.OnlineOk)
+    return c.OnlineShelfItem(kind="online", song=online.songs[0])
 
 
 def _resolution(r: VideoResolution) -> c.OfficialFound | c.ChooseVideoResponse:

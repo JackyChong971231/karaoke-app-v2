@@ -24,7 +24,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
-from karaoke.vocab import FailReason, ImportDecision, LyricsSource, PrepStage, RejectReason
+from karaoke.vocab import FailReason, ImportDecision, LyricsSource, PlaceId, PrepStage, RejectReason
 
 
 class Wire(BaseModel):
@@ -425,6 +425,71 @@ class ArtistResponse(Wire):
     artist_id: str
     library: list[LibrarySongHit]
     online: OnlineResult
+    place_id: PlaceId | None = None
+    """Where the singer is from, for the browse boxes. None when no shelf has shown them yet."""
+    place_chosen: bool = False
+    """The user set the place on the control page, rather than the app guessing it."""
+
+
+# ---- browse (spec "Browse for songs") ----
+
+class PlaceSummary(Wire):
+    place_id: PlaceId
+    label: str
+
+
+class BrowseResponse(Wire):
+    places: list[PlaceSummary]
+    ready_count: int
+
+
+class LibraryShelfItem(Wire):
+    kind: Literal["library"]
+    hit: LibrarySongHit
+
+
+class OnlineShelfItem(Wire):
+    kind: Literal["online"]
+    song: OnlineSongHit
+
+
+ShelfItem = Annotated[LibraryShelfItem | OnlineShelfItem, Field(discriminator="kind")]
+
+
+class ShelfView(Wire):
+    title: str
+    items: list[ShelfItem]
+
+
+class SingerView(Wire):
+    artist_id: str
+    name: str
+    photo_url: str
+    """Empty until the singer's photo has been fetched; the page shows their initial instead."""
+
+
+class PlaceResponse(Wire):
+    place_id: PlaceId
+    label: str
+    shelves: list[ShelfView]
+    """熱門 lists: the place's chart first, then playlists."""
+    library: list[LibrarySongHit]
+    """Library songs whose singer is from this place."""
+    singers: list[SingerView]
+    online_ok: bool
+
+
+class ReadyResponse(Wire):
+    songs: list[LibrarySongHit]
+    """Every library song, newest first."""
+
+
+class ArtistPlaceRequest(Wire):
+    """Control page: set where a singer is from. None returns the singer to the app's guess."""
+
+    artist_id: str
+    name: str
+    place_id: PlaceId | None
 
 
 class VideoCandidateView(Wire):
@@ -550,6 +615,10 @@ class Contract(Wire):
     server: ServerMessage
     search: SearchResponse
     artist: ArtistResponse
+    browse: BrowseResponse
+    place: PlaceResponse
+    ready: ReadyResponse
+    artist_place: ArtistPlaceRequest
     video_choice: VideoChoiceResponse
     favourites: FavouritesResponse
     favourite_add: FavouriteAddRequest

@@ -35,6 +35,7 @@ from karaoke.shell.journal import Journal, replay
 from karaoke.shell.loop import PartyLoop
 from karaoke.shell.screens import open_pages
 from karaoke.shell.store import Store
+from karaoke.songs.browse import ArtistPlaces, Browse
 from karaoke.songs.catalog import Catalog, YouTubeMusic, YTMusicPort
 from karaoke.songs.favourites import Favourites
 from karaoke.songs.library import CloudSyncedRoot, Library
@@ -104,8 +105,11 @@ async def serve(args: argparse.Namespace) -> None:
         from karaoke.importer import ImportService, V1Source
         importer = ImportService(V1Source(args.v1), data / "import-plan.json", catalog, library, preparer)
 
+    places = ArtistPlaces(data / "artist-places.json")
+    places.load()
+    browse = Browse(catalog, library, yt, places)
     services = Services(hub=hub, library=library, catalog=catalog, preparer=preparer, importer=importer,
-                        web_dist=args.web_dist)
+                        web_dist=args.web_dist, browse=browse)
     extra: list[BaseRoute] = []
     if harness_world is not None:
         from karaoke.harness import harness_routes

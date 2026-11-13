@@ -2,10 +2,11 @@
 // Shared with the import review page, which corrects a match with the same search and picker.
 
 import type { JSX } from "react";
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { api } from "../wire/http";
-import type { ArtistResponse, LibrarySongHit, OnlineResults, OnlineSongHit, SearchResponse } from "../wire/types";
-import { FavHeart, FavouritesList } from "./Favourites";
+import type { ArtistResponse, LibrarySongHit, OnlineResults, OnlineSongHit, PlaceId, SearchResponse } from "../wire/types";
+import { BrowseHome, PlacePage, ReadyPage, type Nav } from "./Browse";
+import { FavHeart } from "./Favourites";
 import type { PickController, PickFlow } from "./pickVideo";
 import { formatTime } from "./text";
 import { Art, Icon, Sheet, Spinner } from "./ui";
@@ -55,12 +56,17 @@ export function SearchPanel(props: {
   library: LibraryAction | null;
   onPickFailed: (message: string) => void;
   autoFocus?: boolean;
-  /** Phones: hearts on songs and the favourites list. Off on the import page, which has no phone store. */
+  /** Phones: hearts, the browse boxes, and the favourites list. Off on the import page, which has no phone store. */
   hearts?: boolean;
+  /** The laptop control page: may set where a singer is from. */
+  canSetPlace?: boolean;
 }): JSX.Element {
   const hearts = props.hearts === true;
   const [query, setQuery] = useState("");
-  const [artist, setArtist] = useState<{ id: string; name: string } | null>(null);
+  const [stack, setStack] = useState<Nav[]>([]);
+  const push = useCallback((nav: Nav) => { setStack((st) => [...st, nav]); }, []);
+  const back = useCallback(() => { setStack((st) => st.slice(0, -1)); }, []);
+  const openArtist = useCallback((id: string, name: string) => { push({ kind: "artist", id, name }); }, [push]);
   const trimmed = query.trim();
   const result = useRemote<SearchResponse>(trimmed === "" ? null : trimmed, api.search, 280);
   const flow = usePickFlow(props.pick);
@@ -73,15 +79,34 @@ export function SearchPanel(props: {
     }
   }, [flow, pick, onPickFailed]);
 
-  if (artist !== null) {
+  const top = stack.at(-1);
+  if (top?.kind === "artist") {
     return (
       <ArtistPage
-        artist={artist}
-        onBack={() => { setArtist(null); }}
+        key={top.id}
+        artist={top}
+        onBack={back}
         pick={props.pick}
         library={props.library}
         hearts={hearts}
+        canSetPlace={props.canSetPlace === true}
       />
+    );
+  }
+  if (top?.kind === "place") {
+    return (
+      <>
+        <PlacePage key={top.id} place={top} onBack={back} onArtist={openArtist} pick={props.pick} flow={flow} library={props.library} hearts={hearts} />
+        <VideoPicker pick={props.pick} />
+      </>
+    );
+  }
+  if (top?.kind === "ready" && props.library !== null) {
+    return (
+      <>
+        <ReadyPage onBack={back} onArtist={openArtist} pick={props.pick} library={props.library} hearts={hearts} />
+        <VideoPicker pick={props.pick} />
+      </>
     );
   }
 
@@ -112,12 +137,7 @@ export function SearchPanel(props: {
         </label>
       </div>
       {trimmed === "" && hearts ? (
-        <section className="section" data-testid="favourites">
-          <h3 className="section-title">
-            <Icon name="heartFill" size={14} /> My favourites
-          </h3>
-          <FavouritesList emptyHint />
-        </section>
+        <BrowseHome onOpen={push} />
       ) : trimmed === "" ? (
         <div className="empty empty-search">
           <div className="empty-art">
@@ -139,7 +159,7 @@ export function SearchPanel(props: {
           pick={props.pick}
           flow={flow}
           libraryAction={props.library}
-          onArtist={(id, name) => { setArtist({ id, name }); }}
+          onArtist={openArtist}
           query={trimmed}
           hearts={hearts}
         />
@@ -155,6 +175,7 @@ function ArtistPage(props: {
   pick: PickController;
   library: LibraryAction | null;
   hearts: boolean;
+  canSetPlace: boolean;
 }): JSX.Element {
   const result = useRemote<ArtistResponse>(props.artist.id, api.artist, 0);
   const flow = usePickFlow(props.pick);
@@ -171,6 +192,9 @@ function ArtistPage(props: {
           <h2>{data?.artist ?? props.artist.name}</h2>
         </div>
       </div>
+      {props.canSetPlace && data !== null && (
+        <PlaceSetter artistId={data.artistId} name={data.artist} place={data.placeId ?? null} chosen={data.placeChosen === true} />
+      )}
       {data === null ? (
         result.kind === "error" ? <div className="notice">Couldn't load this artist.</div> : <ResultSkeleton />
       ) : (
@@ -187,6 +211,43 @@ function ArtistPage(props: {
       )}
       <VideoPicker pick={props.pick} />
     </div>
+  );
+}
+
+const PLACE_LABELS: [PlaceId, string][] = [
+  ["hk", "香港"], ["tw", "台灣"], ["cn", "中國"], ["jp", "日本"], ["kr", "韓國"], ["west", "歐美"],
+];
+
+/** Control page only: where this singer is from. The app guesses from the 熱門 lists; the user's choice wins. */
+function PlaceSetter(props: { artistId: string; name: string; place: PlaceId | null; chosen: boolean }): JSX.Element {
+  const [place, setPlace] = useState<PlaceId | null>(props.place);
+  const [saved, setSaved] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  return (
+    <label className="place-setter" data-testid="place-setter">
+      <span className="field-label">From</span>
+      <select
+        className="input"
+        data-testid="place-select"
+        value={place ?? ""}
+        onChange={(e) => {
+          const next = e.currentTarget.value === "" ? null : (e.currentTarget.value as PlaceId);
+          setPlace(next);
+          setSaved("saving");
+          api.setArtistPlace(props.artistId, props.name, next).then(
+            () => { setSaved("saved"); },
+            () => { setSaved("error"); },
+          );
+        }}
+      >
+        <option value="">{props.chosen ? "Let the app guess" : "Not sure yet"}</option>
+        {PLACE_LABELS.map(([id, label]) => (
+          <option key={id} value={id}>{label}</option>
+        ))}
+      </select>
+      <span className="muted" data-testid="place-status">
+        {saved === "saving" ? "Saving…" : saved === "saved" ? "Saved" : saved === "error" ? "Couldn't save" : props.chosen ? "Set by you" : "Guessed"}
+      </span>
+    </label>
   );
 }
 
@@ -219,37 +280,7 @@ function Results(props: {
       {library.length > 0 && libraryAction !== null && (
         <Section title="Ready to sing" count={library.length}>
           {library.map((hit) => (
-            <li key={hit.song.songId} className="row" data-testid="library-result">
-              <Art songId={hit.song.songId} title={hit.song.title} />
-              <div className="row-text">
-                <div className="row-title">{hit.song.title}</div>
-                <div className="row-sub">
-                  <ArtistLink id={hit.song.artistId} name={hit.song.artist} onArtist={onArtist} />
-                </div>
-                <div className="row-meta">
-                  <span className="chip chip-ready" data-testid="ready-badge">
-                    <span className="chip-dot" /> Ready
-                  </span>
-                  {hit.lyricsFlagged && <span className="chip chip-warn">Lyrics may be wrong</span>}
-                  <button
-                    className="link link-sm"
-                    data-testid="library-other-videos"
-                    onClick={() => { props.pick.dispatch({ type: "choose", song: libraryAsPickSong(hit) }); }}
-                  >
-                    <Icon name="video" size={14} /> Other videos
-                  </button>
-                </div>
-              </div>
-              {hearts && (
-                <FavHeart songRef={{ kind: "song", songId: hit.song.songId }} title={hit.song.title} artistId={hit.song.artistId} />
-              )}
-              <AddButton
-                busy={libraryAction.busy(hit.song.songId)}
-                label={`${libraryAction.label} ${hit.song.title}`}
-                onClick={() => { libraryAction.run(hit); }}
-                testId="queue-library"
-              />
-            </li>
+            <LibraryRow key={hit.song.songId} hit={hit} pick={props.pick} action={libraryAction} onArtist={onArtist} hearts={hearts} />
           ))}
         </Section>
       )}
@@ -260,32 +291,9 @@ function Results(props: {
       ) : (
         onlineSongs.length > 0 && (
           <Section title="From YouTube Music" count={onlineSongs.length}>
-            {onlineSongs.map((song) => {
-                const busy =
-                  (flow.step === "resolving" || (flow.step === "queuing" && flow.candidates === null)) &&
-                  flow.song.onlineKey === song.onlineKey;
-                return (
-                  <li key={song.onlineKey} className="row" data-testid="online-result">
-                    <Art src={song.thumbnailUrl} title={song.title} />
-                    <div className="row-text">
-                      <div className="row-title">{song.title}</div>
-                      <div className="row-sub">
-                        <ArtistLink id={song.artistId} name={song.artist} onArtist={onArtist} />
-                        {song.durationS > 0 && <span className="muted"> · {formatTime(song.durationS)}</span>}
-                      </div>
-                    </div>
-                    {hearts && (
-                      <FavHeart songRef={{ kind: "online", onlineKey: song.onlineKey }} title={song.title} artistId={song.artistId} />
-                    )}
-                    <AddButton
-                      busy={busy}
-                      label={`Add ${song.title}`}
-                      onClick={() => { props.pick.dispatch({ type: "choose", song }); }}
-                      testId="queue-online"
-                    />
-                  </li>
-                );
-              })}
+            {onlineSongs.map((song) => (
+              <OnlineRow key={song.onlineKey} song={song} pick={props.pick} flow={flow} onArtist={onArtist} hearts={hearts} />
+            ))}
           </Section>
         )
       )}
@@ -296,6 +304,83 @@ function Results(props: {
         </div>
       )}
     </div>
+  );
+}
+
+export function LibraryRow(props: {
+  hit: LibrarySongHit;
+  pick: PickController;
+  action: LibraryAction;
+  onArtist: ((id: string, name: string) => void) | null;
+  hearts: boolean;
+}): JSX.Element {
+  const { hit, action, onArtist } = props;
+  return (
+    <li className="row" data-testid="library-result">
+      <Art songId={hit.song.songId} title={hit.song.title} />
+      <div className="row-text">
+        <div className="row-title">{hit.song.title}</div>
+        <div className="row-sub">
+          <ArtistLink id={hit.song.artistId} name={hit.song.artist} onArtist={onArtist} />
+        </div>
+        <div className="row-meta">
+          <span className="chip chip-ready" data-testid="ready-badge">
+            <span className="chip-dot" /> Ready
+          </span>
+          {hit.lyricsFlagged && <span className="chip chip-warn">Lyrics may be wrong</span>}
+          <button
+            className="link link-sm"
+            data-testid="library-other-videos"
+            onClick={() => { props.pick.dispatch({ type: "choose", song: libraryAsPickSong(hit) }); }}
+          >
+            <Icon name="video" size={14} /> Other videos
+          </button>
+        </div>
+      </div>
+      {props.hearts && (
+        <FavHeart songRef={{ kind: "song", songId: hit.song.songId }} title={hit.song.title} artistId={hit.song.artistId} />
+      )}
+      <AddButton
+        busy={action.busy(hit.song.songId)}
+        label={`${action.label} ${hit.song.title}`}
+        onClick={() => { action.run(hit); }}
+        testId="queue-library"
+      />
+    </li>
+  );
+}
+
+export function OnlineRow(props: {
+  song: OnlineSongHit;
+  pick: PickController;
+  flow: PickFlow;
+  onArtist: ((id: string, name: string) => void) | null;
+  hearts: boolean;
+}): JSX.Element {
+  const { song, flow } = props;
+  const busy =
+    (flow.step === "resolving" || (flow.step === "queuing" && flow.candidates === null)) &&
+    flow.song.onlineKey === song.onlineKey;
+  return (
+    <li className="row" data-testid="online-result">
+      <Art src={song.thumbnailUrl} title={song.title} />
+      <div className="row-text">
+        <div className="row-title">{song.title}</div>
+        <div className="row-sub">
+          <ArtistLink id={song.artistId} name={song.artist} onArtist={props.onArtist} />
+          {song.durationS > 0 && <span className="muted"> · {formatTime(song.durationS)}</span>}
+        </div>
+      </div>
+      {props.hearts && (
+        <FavHeart songRef={{ kind: "online", onlineKey: song.onlineKey }} title={song.title} artistId={song.artistId} />
+      )}
+      <AddButton
+        busy={busy}
+        label={`Add ${song.title}`}
+        onClick={() => { props.pick.dispatch({ type: "choose", song }); }}
+        testId="queue-online"
+      />
+    </li>
   );
 }
 
@@ -342,7 +427,7 @@ function AddButton(props: { busy: boolean; label: string; onClick: () => void; t
   );
 }
 
-function Section(props: { title: string; count: number; children: ReactNode }): JSX.Element {
+export function Section(props: { title: string; count: number; children: ReactNode }): JSX.Element {
   return (
     <section className="section">
       <h3 className="section-title">
@@ -353,7 +438,7 @@ function Section(props: { title: string; count: number; children: ReactNode }): 
   );
 }
 
-function ResultSkeleton(): JSX.Element {
+export function ResultSkeleton(): JSX.Element {
   return (
     <section className="section">
       <div className="skeleton-line" style={{ width: "35%", marginBottom: 14 }} />

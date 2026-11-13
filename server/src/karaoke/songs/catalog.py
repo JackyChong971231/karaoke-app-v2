@@ -117,6 +117,9 @@ class YouTubeMusic(Protocol):
     def videos(self, query: str) -> list[dict]: ...  # type: ignore[type-arg]
     def artist(self, artist: ArtistId, language: str) -> dict: ...  # type: ignore[type-arg]
     def track(self, video: SongId, language: str) -> dict | None: ...  # type: ignore[type-arg]
+    def charts(self, country: str) -> dict: ...  # type: ignore[type-arg]
+    def playlists(self, query: str) -> list[dict]: ...  # type: ignore[type-arg]
+    def playlist(self, playlist_id: str, limit: int) -> list[dict]: ...  # type: ignore[type-arg]
 
 
 class YTMusicPort:
@@ -144,6 +147,17 @@ class YTMusicPort:
     def track(self, video: SongId, language: str) -> dict | None:  # type: ignore[type-arg]
         tracks = self._yt(language).get_watch_playlist(video, limit=1).get("tracks") or []
         return dict(tracks[0]) if tracks and tracks[0].get("videoId") == video else None
+
+    def charts(self, country: str) -> dict:  # type: ignore[type-arg]
+        return dict(self._yt("zh_TW").get_charts(country=country))
+
+    def playlists(self, query: str) -> list[dict]:  # type: ignore[type-arg]
+        """Filtered search returns nothing in zh_TW (probed 2026-11-12), so playlists are searched in en."""
+        return list(self._yt("en").search(query, filter="playlists", limit=10))
+
+    def playlist(self, playlist_id: str, limit: int) -> list[dict]:  # type: ignore[type-arg]
+        pid = playlist_id.removeprefix("VL")
+        return list(self._yt("zh_TW").get_playlist(pid, limit=limit).get("tracks") or [])
 
 
 # ---- pure rules ----
@@ -177,6 +191,32 @@ def is_official_video(video: dict, core_titles: tuple[str, ...], artist: ArtistI
         and any(c and search_key(c) in title for c in core_titles)
         and any(a.get("id") == artist for a in video.get("artists") or [])
     )
+
+
+_BRACKETED = re.compile(r"[《「『]([^》」』]+)[》」』]")
+_TAG = re.compile(
+    r"[(（\[【［][^)）\]】］]*(?:official|music video|\bmv\b|lyric|官方|完整版|高清)[^)）\]】］]*[)）\]】］]"
+    r"|\bofficial\s+(?:music\s+)?video\b|\bmusic\s+video\b|\bofficial\s+mv\b|\bmv\b",
+    re.IGNORECASE,
+)
+
+
+def clean_video_title(title: str, artist_names: tuple[str, ...]) -> str:
+    """A chart track is a music video, so its title may carry the artist and tags:
+    "炎明熹 Gigi Yim - 在搖搖板上相對的我們 Seesaw of Us | Official Music Video" -> "在搖搖板上相對的我們 Seesaw of Us",
+    "Jeremy 李駿傑 & Marf 邱彥筒《Whistle》Official Music Video" -> "Whistle"."""
+    found = _BRACKETED.search(title)
+    if found:
+        return found.group(1).strip()
+    text = re.split(r"\s*[|｜]", title)[0]
+    # "炎明熹 Gigi Yim" names the artist "Gigi 炎明熹": a part sharing a word with an artist name is the artist.
+    name_words = {w for n in artist_names for w in n.casefold().split() if len(w) > 1}
+    parts = [p for p in re.split(r"\s+[-–—]\s+", text) if p.strip()]
+    if len(parts) > 1:
+        kept = [p for p in parts if not name_words & set(p.casefold().split())]
+        text = " - ".join(kept or parts[1:])
+    text = _TAG.sub("", text)
+    return re.sub(r"\s{2,}", " ", text).strip(" -–|") or title.strip()
 
 
 def _seconds(r: dict) -> float:  # type: ignore[type-arg]
@@ -302,6 +342,25 @@ class Catalog:
             return False
         keys = {search_key(t) for t in (s.zh_title, s.en_title) if t}
         return any(search_key(m.title) in keys for m in entry.songs)
+
+    def shelf_item(self, track: dict) -> LibraryHit | OnlineSong | None:  # type: ignore[type-arg]
+        """A chart or playlist track (a music video) as a song a phone can queue: the library song when it is
+        already there, else an online song whose key opens the usual video choice. None for a track without a
+        video id or an artist id."""
+        artists = [a for a in track.get("artists") or [] if a.get("id")]
+        if not track.get("videoId") or not artists:
+            return None
+        a = artists[0]
+        title = clean_video_title(track.get("title") or "", tuple(x.get("name") or "" for x in artists))
+        seen = _Seen(OnlineKey(track["videoId"]), title, None, ArtistId(a["id"]), a.get("name") or "",
+                     None, _seconds(track), _thumbnail(track))
+        entry = self._library.artist(seen.artist_id)
+        if entry:
+            same = next((m for m in entry.songs if search_key(m.title) == search_key(title)), None)
+            if same:
+                return LibraryHit(same, self._flagged(same.id))
+        self._seen.put(seen.key, seen)
+        return seen.public()
 
     async def artist(self, artist: ArtistId) -> ArtistPage:
         entry = self._library.artist(artist)

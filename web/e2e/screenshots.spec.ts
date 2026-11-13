@@ -23,6 +23,15 @@ test("screenshots of the TV and phone pages", async ({ party, browser }) => {
   await queueLibrary(alice, "河流");
 
   await bob.getByTestId("tab-search").click();
+  await bob.getByTestId("search-input").fill("");
+  await expect(bob.getByTestId("box-hk")).toBeVisible();
+  await bob.waitForTimeout(300);
+  await shot(bob, "phone-browse");
+  await bob.getByTestId("box-hk").click();
+  await expect(bob.getByTestId("singers")).toBeVisible();
+  await bob.waitForTimeout(300);
+  await shot(bob, "phone-place-hk");
+  await bob.getByTestId("place-back").click();
   await bob.getByTestId("search-input").fill("fake");
   await expect(bob.getByTestId("online-result").first()).toBeVisible();
   await shot(bob, "phone-search");

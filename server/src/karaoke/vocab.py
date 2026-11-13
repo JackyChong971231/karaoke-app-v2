@@ -31,3 +31,6 @@ ImportDecision = Literal["proposed", "confirmed", "corrected", "skipped"]
 library and the preparation board when the review page is rendered."""
 
 MediaFile = Literal["video.mp4", "instrumental.opus", "vocals.opus", "lyrics.json"]
+
+PlaceId = Literal["hk", "tw", "cn", "jp", "kr", "west"]
+"""The browse boxes, by where a singer is from (spec "Browse for songs"): 香港 台灣 中國 日本 韓國 歐美."""

@@ -2,7 +2,12 @@
 // are generated from, so the boundary check is the HTTP status; the shape is the contract's.
 
 import type {
+  ArtistPlaceRequest,
   ArtistResponse,
+  BrowseResponse,
+  PlaceId,
+  PlaceResponse,
+  ReadyResponse,
   FavouriteAddRequest,
   FavouriteRemoveRequest,
   FavouritesResponse,
@@ -37,6 +42,12 @@ function post<T>(url: string, body: unknown): Promise<T> {
 export const api = {
   search: (query: string, signal: AbortSignal) => request<SearchResponse>(`/api/search?q=${q(query)}`, { signal }),
   artist: (artistId: string, signal: AbortSignal) => request<ArtistResponse>(`/api/artist/${q(artistId)}`, { signal }),
+  browse: (_key: string, signal: AbortSignal) => request<BrowseResponse>("/api/browse", { signal }),
+  place: (placeId: string, signal: AbortSignal) => request<PlaceResponse>(`/api/place/${q(placeId)}`, { signal }),
+  ready: (_key: string, signal: AbortSignal) => request<ReadyResponse>("/api/ready", { signal }),
+  /** Control page: where a singer is from. Null returns them to the app's guess. */
+  setArtistPlace: (artistId: string, name: string, placeId: PlaceId | null) =>
+    post<unknown>("/api/artist-place", { artistId, name, placeId } satisfies ArtistPlaceRequest),
   videoChoice: (onlineKey: string, signal: AbortSignal) =>
     request<VideoChoiceResponse>(`/api/video-choice?key=${q(onlineKey)}`, { signal }),
   /** Phones: always a list, the official video first and flagged. `key` may be `lib:<song id>`. */

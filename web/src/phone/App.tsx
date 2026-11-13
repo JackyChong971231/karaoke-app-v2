@@ -75,7 +75,7 @@ function Shell(props: { desk: boolean }): JSX.Element {
           <Queue onFindSong={goSearch} />
         </section>
         <section className={`screen ${shows("search") ? "is-active" : ""}`} aria-hidden={!shows("search")}>
-          <PhoneSearch />
+          <PhoneSearch desk={desk} />
         </section>
       </main>
       {!desk && tab !== "now" && view?.now != null && <MiniPlayer now={view.now} onOpen={() => { setTab("now"); }} />}
@@ -175,7 +175,7 @@ function MiniPlayer(props: { now: NowView; onOpen: () => void }): JSX.Element {
   );
 }
 
-function PhoneSearch(): JSX.Element {
+function PhoneSearch(props: { desk: boolean }): JSX.Element {
   const store = useStore();
   const { pending } = usePhone();
   const onFailed = useCallback((message: string) => { store.toast(message, "error"); }, [store]);
@@ -184,6 +184,7 @@ function PhoneSearch(): JSX.Element {
       pick={store.pick}
       onPickFailed={onFailed}
       hearts
+      canSetPlace={props.desk}
       library={{
         label: "Add",
         busy: (songId) => pending.has(`lib:${songId}`),

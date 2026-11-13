@@ -124,6 +124,56 @@ test("favourites: heart songs, queue from the list, and get them back on an empt
   await expect(other.getByTestId("favourites-empty")).toBeVisible();
 });
 
+test("browse by place: 香港 熱門 shelves, its singers, and Ready to sing", async ({ party }) => {
+  const tv = await party.tv();
+  await waitForTv(tv, (x) => x.stage.kind === "playing", "filler started");
+  const phone = await party.phone("Alice");
+  await phone.getByTestId("pause").click();
+  await phone.getByTestId("tab-search").click();
+  for (const box of ["hk", "tw", "cn", "jp", "kr", "west", "ready"]) {
+    await expect(phone.getByTestId(`box-${box}`)).toBeVisible();
+  }
+
+  await phone.getByTestId("box-hk").click();
+  const chart = phone.getByTestId("shelf").first();
+  await expect(chart).toContainText("HK 熱門 Top 100");
+  await expect(chart.getByTestId("online-result")).toHaveText([/測試之歌/]);
+  await expect(chart.getByTestId("library-result")).toHaveText([/河流/]);
+  await expect(chart).not.toContainText("NEON");
+  await expect(phone.getByTestId("place-library")).toContainText("河流");
+  await chart.getByTestId("online-result").getByTestId("queue-online").click();
+  await phone.getByTestId("video-queue-best").click();
+  await expect(phone.getByTestId("toast").filter({ hasText: "Queued “測試之歌”" })).toBeVisible();
+
+  await phone.getByTestId("singer").filter({ hasText: "測試歌手" }).click();
+  await expect(phone.getByTestId("artist-page")).toContainText("測試歌手");
+  await expect(phone.getByTestId("place-setter")).toHaveCount(0, { timeout: 1000 });
+  await phone.getByTestId("artist-back").click();
+  await expect(phone.getByTestId("place-page")).toBeVisible();
+  await phone.getByTestId("place-back").click();
+
+  await phone.getByTestId("box-ready").click();
+  await expect(phone.getByTestId("library-result")).toHaveCount(3);
+});
+
+test("the control page corrects where a singer is from", async ({ party }) => {
+  const control = await party.control("Host");
+  await control.getByTestId("box-hk").click();
+  await expect(control.getByTestId("shelf").first()).toContainText("測試之歌");
+  await control.getByTestId("singer").filter({ hasText: "測試歌手" }).click();
+  await expect(control.getByTestId("place-select")).toHaveValue("hk");
+  await control.getByTestId("place-select").selectOption("tw");
+  await expect(control.getByTestId("place-status")).toHaveText("Saved");
+  await control.getByTestId("artist-back").click();
+  await control.getByTestId("place-back").click();
+  await control.getByTestId("box-hk").click();
+  await expect(control.getByTestId("shelf").first()).toContainText("河流");
+  await expect(control.getByTestId("shelf").first()).not.toContainText("測試之歌");
+  await control.getByTestId("place-back").click();
+  await control.getByTestId("box-tw").click();
+  await expect(control.getByTestId("singers")).toContainText("測試歌手");
+});
+
 test("skip advances exactly one song with a double tap", async ({ party }) => {
   const tv = await party.tv();
   const filler = await waitForTv(tv, (x) => x.stage.kind === "playing", "filler started");

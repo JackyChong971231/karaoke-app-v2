@@ -245,6 +245,23 @@ class Library:
     def count(self) -> int:
         return int(self._q("SELECT count(*) FROM songs")[0][0])
 
+    def newest(self, limit: int = 500) -> list[SongRecord]:
+        """Every song, newest first by when its folder was installed. For the "Ready to sing" box."""
+        records = [SongRecord.from_json(json.loads(r[0])) for r in self._q("SELECT record FROM songs")]
+
+        def installed(r: SongRecord) -> float:
+            try:
+                return (self.root / r.meta.id / "song.json").stat().st_mtime
+            except OSError:
+                return 0.0
+        records.sort(key=installed, reverse=True)
+        return records[:limit]
+
+    def artists(self) -> list[ArtistRef]:
+        """One entry per library artist, named as on their first song."""
+        rows = self._q("SELECT record FROM songs GROUP BY artist_id")
+        return [SongRecord.from_json(json.loads(r[0])).meta.artist for r in rows]
+
     # ---- write (Preparer only) ----
     def staging_dir(self, song: SongId) -> Path:
         """<root>/.staging/<song>/, created if missing. Same volume as root, so install is a rename."""
