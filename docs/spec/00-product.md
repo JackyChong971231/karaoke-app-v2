@@ -66,6 +66,13 @@ The user's words: make it easier to see and navigate, and fit everything on the 
 - Opening up next shows the next few songs, and a "Load more" button shows more with each tap. Assumption: it opens to 3 songs, and each tap adds 5.
 - The song title takes one line. The user's words: when the song name is too long, it scrolls horizontally back and forth and only occupies one line, instead of multiple lines, to save space. Assumption: it pauses at each end, and it stays still for people who turned on reduced motion on their phone, showing "…" instead.
 - Assumption: "one screen" means a common phone size (about 375 by 667 points, iPhone SE, and larger) with the browser's toolbars showing. Opening up next or loading more may make the page scroll.
+- The playing song's picture is big. The user's words: I still prefer a bigger image for the song that is playing. Assumption: it is a wide picture across the page, as tall as the phone allows while everything above still fits one screen. On a phone too short for that (iPhone SE size), it stays a small square beside the title.
+
+### Song pictures (added 2026-11-12)
+
+- A song that is already downloaded shows the picture of its video, not the first letter of its title. The user's words: for songs that are already downloaded, show the thumbnail of the video instead of the first-letter logo.
+- Assumption: the laptop keeps each downloaded song's picture beside its files and phones load it from the laptop, so pictures show without YouTube at party time. The laptop takes YouTube's best-quality picture for the video, once. If YouTube cannot be reached, it uses a frame from the downloaded video.
+- A song that is not downloaded yet shows YouTube's picture. The first letter shows only when no picture can be found.
 
 ### Keep settings in sync (added 2026-11-12)
 

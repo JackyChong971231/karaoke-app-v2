@@ -1995,3 +1995,29 @@ h3 {
 .why .btn {
   margin-top: 6px;
 }
+
+/* ---- big now-playing picture where the screen has room (2026-11-12) ----
+   The banner takes whatever height the rest of the page leaves on the smallest viewport (browser toolbars
+   showing), so the key and up next still fit one screen. --now-rest is the height of everything else on the
+   page, measured on a phone; on shorter screens the small square beside the title stays. */
+:root {
+  --now-rest: 550px;
+}
+
+@media (min-height: 650px) {
+  .now-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 8px;
+    row-gap: 12px;
+  }
+
+  .now-hero .art-lg {
+    grid-column: 1 / -1;
+    width: 100%;
+    height: clamp(100px, calc(100svh - var(--now-rest)), 260px);
+    border-radius: var(--radius);
+    font-size: 56px;
+  }
+}

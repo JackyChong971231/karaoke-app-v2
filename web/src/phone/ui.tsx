@@ -2,7 +2,7 @@
 
 import type { JSX } from "react";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { thumbnailFor } from "../wire/http";
+import { localThumbFor, thumbnailFor } from "../wire/http";
 import { assertNever } from "../wire/socket";
 import type { Readiness } from "../wire/types";
 import { failText, stageText } from "./text";
@@ -82,28 +82,43 @@ function gradientFor(seed: string): string {
 }
 
 /** Song art: the YouTube still when it loads, a colour drawn from the song otherwise. Fixed size, no shift. */
+/** A song's picture: the laptop's copy if the song is downloaded, else YouTube's, else the title's first letter.
+ *  The letter shows only once every picture has failed, never while one is loading. */
 export function Art(props: { songId?: string; src?: string; title: string; size?: "sm" | "md" | "lg" }): JSX.Element {
-  const src = props.src ?? (props.songId !== undefined ? thumbnailFor(props.songId) : undefined);
-  const [state, setState] = useState<"loading" | "ok" | "fail">("loading");
-  useEffect(() => { setState("loading"); }, [src]);
+  const { songId, src } = props;
+  const sources = src !== undefined ? [src] : songId !== undefined ? [localThumbFor(songId), thumbnailFor(songId)] : [];
+  const key = sources.join(" ");
+  const [at, setAt] = useState(0);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    setAt(0);
+    setLoaded(false);
+  }, [key]);
+  const current = sources[at];
   const initial = [...props.title.trim()][0] ?? "♪";
+  const next = (): void => {
+    setLoaded(false);
+    setAt((i) => i + 1);
+  };
   return (
     <div
       className={`art art-${props.size ?? "sm"}`}
-      style={{ background: gradientFor(props.songId ?? props.title) }}
+      style={{ background: gradientFor(songId ?? props.title) }}
     >
-      <span className="art-initial">{initial}</span>
-      {src !== undefined && state !== "fail" && (
+      {current === undefined && <span className="art-initial">{initial}</span>}
+      {current !== undefined && (
         <img
-          src={src}
+          key={current}
+          src={current}
           alt=""
           loading="lazy"
-          className={state === "ok" ? "is-loaded" : ""}
+          className={loaded ? "is-loaded" : ""}
           onLoad={(e) => {
             // YouTube serves a 120x90 grey placeholder for unknown IDs instead of a 404.
-            setState(e.currentTarget.naturalWidth <= 120 ? "fail" : "ok");
+            if (e.currentTarget.naturalWidth <= 120) next();
+            else setLoaded(true);
           }}
-          onError={() => { setState("fail"); }}
+          onError={next}
         />
       )}
     </div>

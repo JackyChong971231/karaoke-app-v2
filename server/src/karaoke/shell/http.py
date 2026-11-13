@@ -15,6 +15,7 @@
     GET  /api/favourites/offer?name=&browser= -> contract.RestoreOfferResponse (by phone address, then name)
     POST /api/favourites/claim      -> contract.FavouritesResponse      (moves an offered list to this browser)
     GET  /media/{song_id}/{file}    -> Library.media_path; file restricted to vocab.MediaFile; Range requests on
+    GET  /thumb/{song_id}.jpg       -> songs.thumbs.Thumbs: a downloaded song's picture, made on first request
     GET  /api/import                -> contract.ImportPlanView          (ImportService)
     POST /api/import/plan?limit=20  -> build or extend the plan (matching runs in the background)
     POST /api/import/decide         -> contract.ImportDecideRequest
@@ -51,6 +52,7 @@ from karaoke.songs.catalog import (
 )
 from karaoke.songs.library import Library
 from karaoke.songs.prepare import Preparer, PrepStatus
+from karaoke.songs.thumbs import Thumbs
 from karaoke.vocab import MediaFile
 
 log = logging.getLogger(__name__)
@@ -69,6 +71,7 @@ class Services:
     importer: ImportService | None
     web_dist: Path
     browse: Browse | None = None
+    thumbs: Thumbs | None = None
     background: set[asyncio.Task[None]] = field(default_factory=set)
 
 
@@ -215,6 +218,13 @@ def routes(s: Services) -> list[BaseRoute]:
         return FileResponse(path, media_type=_MEDIA_TYPES.get(path.suffix, "application/octet-stream"),
                             headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
+    async def thumb(request: Request) -> Response:
+        """A downloaded song's picture (spec "Song pictures"). 404 for a song not downloaded: the page then uses YouTube's."""
+        path = await s.thumbs.path(SongId(request.path_params["song_id"])) if s.thumbs is not None else None
+        if path is None:
+            return PlainTextResponse("not found", status_code=404)
+        return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=86400"})
+
     def importer_route(handler: Callable[[ImportService, Request], Awaitable[Response]]) -> Callable[[Request], Awaitable[Response]]:
         async def endpoint(request: Request) -> Response:
             if s.importer is None:
@@ -276,6 +286,7 @@ def routes(s: Services) -> list[BaseRoute]:
         Route("/api/favourites/offer", restore_offer),
         Route("/api/favourites/claim", restore_claim, methods=["POST"]),
         Route("/media/{song_id}/{file}", media),
+        Route("/thumb/{song_id}.jpg", thumb),
         Route("/api/import", importer_route(import_view)),
         Route("/api/import/plan", importer_route(import_plan), methods=["POST"]),
         Route("/api/import/decide", importer_route(import_decide), methods=["POST"]),

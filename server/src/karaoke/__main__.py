@@ -35,6 +35,7 @@ from karaoke.shell.journal import Journal, replay
 from karaoke.shell.loop import PartyLoop
 from karaoke.shell.lifetime import tie_children_to_this_process
 from karaoke.shell.screens import open_pages
+from karaoke.songs.thumbs import Thumbs, no_fetch, youtube_picture
 from karaoke.shell.store import Store
 from karaoke.songs.browse import ArtistPlaces, Browse
 from karaoke.songs.catalog import Catalog, YouTubeMusic, YTMusicPort
@@ -110,7 +111,8 @@ async def serve(args: argparse.Namespace) -> None:
     places.load()
     browse = Browse(catalog, library, yt, places)
     services = Services(hub=hub, library=library, catalog=catalog, preparer=preparer, importer=importer,
-                        web_dist=args.web_dist, browse=browse)
+                        web_dist=args.web_dist, browse=browse,
+                        thumbs=Thumbs(library, no_fetch if fake else youtube_picture))
     extra: list[BaseRoute] = []
     if harness_world is not None:
         from karaoke.harness import harness_routes

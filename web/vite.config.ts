@@ -45,6 +45,7 @@ export default defineConfig({
       "/ws": { target: server.replace(/^http/, "ws"), ws: true },
       "/api": server,
       "/media": server,
+      "/thumb": server,
       "/test": server,
     },
   },

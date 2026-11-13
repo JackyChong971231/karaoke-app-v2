@@ -81,6 +81,11 @@ export function mediaUrl(songId: string, file: "video.mp4" | "instrumental.opus"
 }
 
 /** YouTube's still for a video ID. Song IDs are YouTube video IDs; callers fall back when it fails to load. */
+/** A downloaded song's picture, kept on the laptop (spec "Song pictures"). 404 when the song is not downloaded. */
+export function localThumbFor(songId: string): string {
+  return `/thumb/${q(songId)}.jpg`;
+}
+
 export function thumbnailFor(songId: string): string {
   return `https://i.ytimg.com/vi/${q(songId)}/mqdefault.jpg`;
 }
