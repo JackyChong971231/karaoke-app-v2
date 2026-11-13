@@ -1,6 +1,6 @@
 # Technical spec
 
-Status: Approved 2026-11-11. Built from prototype measurements. The user passed key change and word-by-word highlighting by ear and by eye on 2026-11-11.
+Status: Approved 2026-11-11. The section "Changes for 2026-11-12" awaits the user's approval. Built from prototype measurements. The user passed key change and word-by-word highlighting by ear and by eye on 2026-11-11.
 
 ## Stack
 
@@ -151,9 +151,50 @@ Matching a messy v1 video title to a song was wrong 2 times in 20. For example, 
 | LRCLIB | No lyrics for a song, or the site is down | Empty result or a network error | The song plays with transcribed lyrics, marked as possibly wrong. |
 | YouTube Music search through `ytmusicapi` | YouTube Music changes its page format | A search raises an error or returns no song results for a common query | Search on the phone shows library results only, with a note that online search is unavailable. |
 
+## Changes for 2026-11-12
+
+These implement the product spec's sections marked "added 2026-11-12".
+
+### Identity: phone address for fairness, browser ID for favourites
+
+- The hub reads the phone's address from the WebSocket connection. The party's `SingerId` becomes `net:<address>`, and the laptop's own address (`127.0.0.1` or `::1`) becomes `net:laptop`. Fairness, join order, and "sung tonight" all key on it, so a private tab or a cleared browser on the same phone is the same singer.
+- The random ID the browser stores is renamed `browserId`. It keys favourites only.
+- `QueueEntry` gains `singer_name`, the name sent with the queue command. The queue shows it, so a rename does not change songs already queued. Now playing shows the playing entry's name.
+- Assumption: the home router keeps a phone's address for the whole night. Phones that randomise their Wi-Fi address do so per network, not per hour, so this holds.
+
+### Settings sync
+
+- The server stays the only owner of the vocal level, the vocal switch, and the key. Setters stay absolute.
+- The level the switch restores moves from the phone to the server: `Settings` gains `vocal_restore`, the last level above zero. Every phone then restores the same level.
+- The phone slider sends only while the singer drags, and once at the end of the drag if the value changed. It ends a drag on `pointerup`, `pointercancel`, and `lostpointercapture`, so a touch that turns into a scroll cannot leave a stale local value. While not dragging, it shows the server's value only.
+- A phone sends nothing on reconnect except its hello.
+- A browser test opens two phones and the TV, changes the vocal and key from each, and checks all three show the same values after every change.
+
+### Choose the video
+
+- `Catalog.candidates(song)` returns up to 6 video results for `artist + title`. A result passing the official-video rule is first and flagged `official`. The rule itself is unchanged.
+- The phone always shows the list. "Queue" takes the first result.
+- A song in the library with another video ID is a separate library song. Both copies stay.
+
+### Browse
+
+- **Regions.** Each region box maps to YouTube Music genre playlists, read with `get_mood_categories` and `get_mood_playlists`, plus the HK chart from `get_charts` for 粵語 and 國語. Assumption, to verify with a probe before building: the genre list includes Cantopop, Mandopop, J-Pop, K-Pop, and a Western pop entry in region `HK`. If a region has no genre playlist, its box shows a fixed search such as "粵語 熱門" instead.
+- A region's results are cached for 6 hours in memory, so opening a box is quick.
+- Library songs get a region from their artist. Assumption: the artist's region is taken from the YouTube Music genre playlists the artist appears in, and an artist with none is left out of the region boxes but still appears under "By singer" and in search.
+- **Singers.** The grid shows library artists and the artists from the region's charts, with the photo from `get_artist`. Photos are cached on disk in the app data folder.
+- **Ready to sing.** Every library song, newest first.
+
+### Favourites
+
+- New module `favourites`, owning `favourites.json` in the app data folder beside `party.json`. It is written the same crash-safe way: write a temporary file, then rename.
+- Each list stores the browser ID, the last name, the last phone address, and each song's video ID, title, and artist. Storing the full song means a favourite that is not in the library can be queued and prepared without searching again.
+- New phone commands: add a favourite, remove a favourite, and queue a favourite. Queue a favourite is checked against the stored list, so a phone cannot queue an arbitrary video ID.
+- Restore after a laptop address change: a phone without a stored identity asks the server for a restore offer, first by its address, then by the typed name. The server answers with the list's name and song count, never its songs. On yes, the server moves the list to the new browser ID.
+
 ## Verification
 
-- Unit tests cover the fairness order, including both examples in the product spec.
+- Unit tests cover the fairness order, including both examples in the product spec and the user's 2026-11-12 example.
+- Unit tests show that a rename or a second browser ID from the same phone address stays one singer.
 - A project verification skill, made with `/pstack:create-verification-skill`, drives the TV page and a phone page in a real browser with Playwright. The prototype proved this works on the laptop with Microsoft Edge.
 
 ## Open questions

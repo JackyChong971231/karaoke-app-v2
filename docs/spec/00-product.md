@@ -1,6 +1,6 @@
 # Product spec
 
-Status: Approved 2026-11-11. Amended the same day with the user's music video decisions, and again with the control page, start-up windows, TV full-screen button, filler rotation, and vocal switch.
+Status: Approved 2026-11-11. Amended the same day with the user's music video decisions, and again with the control page, start-up windows, TV full-screen button, filler rotation, and vocal switch. Amended 2026-11-12 with video choice, settings sync, browse, fairness by phone, and favourites, approved by the user the same day.
 
 ## Goal
 
@@ -23,6 +23,15 @@ Laptop --USB audio interface---> Mixer <---- wireless microphones
 ## Users and surfaces
 
 - **Singer.** One phone is one singer. On first visit the phone asks for a name and remembers it. The singer can change the name later.
+
+### One phone is one singer, whatever the name (added 2026-11-12)
+
+The user's words: a 咪霸 might keep changing their name when adding songs, so their songs queue back to back. Order the queue by the machine, not the typed name. The screens still show the typed names.
+
+- Fairness counts songs per phone. Changing the name does not make a new singer.
+- Assumption: a phone is recognised by its address on the home Wi-Fi, not only by the ID the browser stores. Clearing the browser, opening a private tab, or switching to another browser on the same phone is still the same singer. A browser cannot read a true hardware ID, so the network address is the closest the app can get.
+- Assumption: the laptop control page counts as one singer, like one phone.
+- Assumption: each queued song shows the name the singer had when they queued it. A later rename does not change songs already in the queue.
 - **TV player.** A full-screen page on the laptop, shown on the TV. It plays the song, shows the lyrics, and shows the QR code.
 - **Phone remote.** A web page opened by scanning the QR code. Anyone on the Wi-Fi who scans it can control the app. There is no PIN.
 - **Control page.** A page on the laptop's own screen, used with the mouse. It has the same controls as the phone remote. The laptop drives the TV as an extended screen, so the control page shows only on the laptop and the TV page shows only on the TV. It shows now playing, the queue, and search side by side. Assumption: the control page asks for a name once, like a phone, and counts as one more singer.
@@ -46,6 +55,15 @@ The remote must look and feel like a finished product, not a DIY tool.
 - Turn the original vocal off or on with one switch beside the slider. Turning it on restores the level it had. Assumption: if it was never on, it turns on at full.
 - Change the key up or down in semitones.
 
+### Keep settings in sync (added 2026-11-12)
+
+The user saw the vocal setting differ between phones, and the app sometimes followed one phone at random.
+
+- Every phone, the control page, and the TV always show the same vocal level, vocal switch, and key.
+- The latest change wins, from whichever phone made it. Every other screen updates to it within a second.
+- A phone never sends a setting the singer did not just change. Ending a slider drag, a cancelled touch, or a reconnect must not resend an old value.
+- Two phones changing the key at the same moment end on one agreed key, shown everywhere.
+
 ### See the queue
 
 - Each entry shows the song title, the artist, the singer who queued it, and whether the song is ready.
@@ -58,6 +76,39 @@ The remote must look and feel like a finished product, not a DIY tool.
 - Singers can browse and search by artist.
 - Library songs are marked as ready to play.
 - After a singer picks an online song, the app finds its official music video. If it finds none, the phone shows the top video results with thumbnails, and the singer taps one.
+
+### Choose the video (added 2026-11-12)
+
+The user's words: sometimes the video is not the official music video, so let singers choose which YouTube video they want.
+
+- After a singer picks an online song, the phone always shows a short list of videos with thumbnails, title, channel, and length. The app's best guess is first and marked, for example "Official MV".
+- One tap on "Queue" takes the best guess, so the common case stays fast. Tapping another video queues that one instead.
+- Assumption: the list shows up to 6 videos.
+- Assumption: a library song that already has a video can also be queued with a different video. The other video is prepared as its own copy and the first copy stays.
+
+### Browse for songs (added 2026-11-12)
+
+The user's words: more ways to find songs than the search box, like a karaoke app, with boxes such as 歐美, 粵語, and 日語.
+
+The search screen opens on a browse page with these ways in:
+
+- **Search box.** As today.
+- **By region.** One box per region: 粵語, 國語, 歐美, 日語, 韓語. Tapping a box shows popular songs of that region from YouTube Music's own charts and playlists, and the library songs whose singer is from that region, marked ready.
+- **By singer.** A grid of singers with photos, grouped by region. Tapping a singer shows their songs.
+- **My favourites.** See below.
+- Assumption: also a **Ready to sing** box listing every library song, newest first, since those start at once.
+
+### Favourite songs (added 2026-11-12)
+
+- Any singer can mark a song as a favourite from search results, the queue, or now playing, with one tap on a heart.
+- Each phone has its own favourites list. Queueing a song from the list takes one tap.
+- The lists are saved on the laptop, not on the phone, so they survive a cleared browser and are easy to back up.
+- A favourite song that is not yet in the library is prepared when it is queued, like any online song.
+- The list belongs to the phone's browser. The user's words: the list must not be lost if the laptop's IP address changes.
+- A browser keeps its saved data per web address. When the laptop's IP address changes, the QR code points at a new address and the phone's browser starts empty, as if it were a new phone. The app then offers the singer their old list:
+  - If the phone's Wi-Fi address matches the one a saved list was last used from, the phone asks "Welcome back, Amy. Keep your 12 favourites?" before asking for a name.
+  - Otherwise, after the singer types a name that matches a saved list, the phone asks the same question.
+  - Nothing is restored unless the singer taps yes. A restored list is then this browser's list.
 
 ## TV player
 
@@ -115,6 +166,10 @@ Example from the user. Songs are queued in the order A, B, B, B, B, A, C. The qu
 
 Example with history. A has sung 3 songs tonight and D joins. D's first song is round 1 and A's next song is round 4, so D sings first.
 
+Example from the user, 2026-11-12, to be proven by a test. A has 2 songs queued: A, A. B queues a song, and it goes after A's first song: A, B, A. A queues another, and it goes to the back: A, B, A, A. C queues a song, and it goes after B: A, B, C, A, A.
+
+- Added 2026-11-12: the user reported that 防咪霸 does not always work. The fairness rule above is unchanged. The fix is to prove it with the user's example and to count by phone, not by name (see "One phone is one singer").
+
 ### Restart the app
 
 - On start, if the last session left songs in the queue, the app asks whether to keep that queue or start a new one.
@@ -160,4 +215,4 @@ v2 designs out these failures:
 
 ## Open questions
 
-None.
+None. Decided 2026-11-12: favourites follow the browser, with the restore offer above. Region boxes use YouTube Music's charts and playlists. Two friends sharing one phone count as one singer.
