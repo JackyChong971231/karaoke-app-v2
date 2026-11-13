@@ -313,6 +313,10 @@ class Catalog:
         self._seen = _Lru()
         self._picks = _Lru()
         self._names = _Lru()
+        self._shelf_videos = _Lru()
+        """Online key -> the chart or playlist track it came from. That track is the official music video, so the
+        video choice shows it first and marked, rather than trusting a new search (probed 2026-11-12: for 季候風 the
+        search put two unrelated videos first and did not mark the official one)."""
 
     async def search(self, query: str) -> SearchResult:
         """Library hits plus online song results."""
@@ -360,6 +364,8 @@ class Catalog:
             if same:
                 return LibraryHit(same, self._flagged(same.id))
         self._seen.put(seen.key, seen)
+        if track.get("videoType") == OFFICIAL_VIDEO:
+            self._shelf_videos.put(seen.key, track)
         return seen.public()
 
     async def artist(self, artist: ArtistId) -> ArtistPage:
@@ -429,11 +435,12 @@ class Catalog:
                 return self._pick(seen, v)
 
         found = [v for v in await asyncio.to_thread(self._yt.videos, query) if v.get("videoId")]
-        videos: list[dict] = []  # type: ignore[type-arg]
+        shelf_video: dict | None = self._shelf_videos.get(key)  # type: ignore[type-arg]
+        videos: list[dict] = [shelf_video] if shelf_video else []  # type: ignore[type-arg]
         for v in found:
             if v["videoId"] not in skip and all(v["videoId"] != w["videoId"] for w in videos):
                 videos.append(v)
-        official = next((v for v in videos if is_official_video(v, cores, artist_id)), None)
+        official = shelf_video or next((v for v in videos if is_official_video(v, cores, artist_id)), None)
         ordered = ([official] if official else []) + [v for v in videos if v is not official]
         return tuple(
             VideoCandidate(pick(v), SongId(v["videoId"]), v.get("title") or "",

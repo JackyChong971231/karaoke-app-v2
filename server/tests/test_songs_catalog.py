@@ -5,7 +5,7 @@ import pytest
 
 from karaoke.core import ArtistId, ArtistRef, SongId, SongMeta
 from karaoke.songs.catalog import (
-    Catalog, ChooseVideo, OfficialVideo, OnlineUnavailable, UnknownOnlineKey, core_title, display_language,
+    Catalog, ChooseVideo, OfficialVideo, OnlineSong, OnlineUnavailable, UnknownOnlineKey, core_title, display_language,
     is_official_video,
 )
 from karaoke.songs.library import Library, SongRecord
@@ -197,3 +197,18 @@ def test_identify_trusts_an_official_videos_own_record(library: Library) -> None
 
 def test_identify_ignores_fan_uploads_whose_record_names_the_uploader(library: Library) -> None:
     assert asyncio.run(Catalog(library, TrackYT("MUSIC_VIDEO_TYPE_UGC")).identify(SongId("ugc1"))) is None
+
+
+def test_a_chart_track_is_its_own_official_video_first_in_the_choice(library: Library) -> None:
+    """Probed 2026-11-12: for 季候風 the video search put unrelated videos first and marked none official, though
+    the chart track was the official music video."""
+    yt = FakeYT()
+    yt.vids = [video("other", "Hong Kong (feat. 王菲季候風)", "UCother"), video("omv", "王菲 Faye -《陀飛輪》MV", "UClabel")]
+    cat = Catalog(library, yt)
+    track = {"videoId": "chart1", "title": "陳奕迅 Eason Chan《陀飛輪》Official MV", "videoType": "MUSIC_VIDEO_TYPE_OMV",
+             "artists": [{"name": "陳奕迅", "id": EASON}], "duration_seconds": 250}
+    item = cat.shelf_item(track)
+    assert isinstance(item, OnlineSong) and item.title == "陀飛輪" and item.artist.name == "陳奕迅"
+    options = asyncio.run(cat.video_options(item.key))
+    assert [(o.video_id, o.official) for o in options] == [("chart1", True), ("other", False), ("omv", False)]
+    assert cat.pick(options[0].pick) == SongMeta(SongId("chart1"), "陀飛輪", ArtistRef(ArtistId(EASON), "陳奕迅"), 250.0)
