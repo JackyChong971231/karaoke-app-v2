@@ -15,8 +15,8 @@ from karaoke.core import ArtistId, ArtistRef, SingerId, SongId, SongMeta
 from karaoke.party import (
     Accepted, AwaitingRestartChoice, Before, DurableSnapshot, End, EntryId, Filler, FillerPicked, FromQueue, Front,
     Hello, Idle, Input, MoveEntry, PartyState, PlayId, Playing, QueueSong, Rejected, RemoveEntry, Rename,
-    ResolveRestart, Running, SavedEntry, SetAvOffset, SetKey, SetPaused, SetVocal, Settings, Skip, SongReady,
-    TrackEnded, TrackFailed, TvPresence, durable, filler_request, initial_state, preparation_demand, reduce,
+    ResolveRestart, Running, SavedEntry, SetAvOffset, SetKey, SetPaused, SetVocal, SetVocalOn, Settings, Skip,
+    SongReady, StepKey, TrackEnded, TrackFailed, TvPresence, durable, filler_request, initial_state, preparation_demand, reduce,
 )
 
 A, B, C, D = (SingerId(x) for x in "ABCD")
@@ -157,7 +157,7 @@ def test_playback_setters_are_absolute_and_validated() -> None:
     assert reduce(s, SetVocal(A, float("nan"))).outcome == Rejected("invalid_value")
     assert reduce(s, SetAvOffset(A, -0.1)).outcome == Rejected("invalid_value")
     s = run(s, SetVocal(A, 0.4), SetAvOffset(A, 0.2))
-    assert s.settings == Settings(vocal_level=0.4, av_offset_s=0.2)
+    assert s.settings == Settings(vocal_level=0.4, vocal_restore=0.4, av_offset_s=0.2)
     assert reduce(party(), Skip(A, PlayId(1))).outcome == Rejected("nothing_playing")
 
 
@@ -166,6 +166,36 @@ def test_key_resets_and_vocal_level_persists_across_songs() -> None:
     p = playing(s).play_id
     s = run(s, SetKey(A, p, -2), SetVocal(A, 0.7), TrackEnded(p))
     assert playing(s).semitones == 0 and s.settings.vocal_level == 0.7
+
+
+def test_key_steps_apply_to_the_current_key_so_a_lagging_phone_cannot_move_it_back() -> None:
+    """Spec "Keep settings in sync": phone A raised the key to +2; phone B still shows 0 and presses +.
+    With absolute setters B would send +1 and pull the key down. A step lands on +3."""
+    s = run(party(), SongReady(song("0").id), QueueSong(A, song("0")))
+    p = playing(s).play_id
+    s = run(s, StepKey(A, p, 1), StepKey(A, p, 1), StepKey(B, p, 1))
+    assert playing(s).semitones == 3
+    s = run(s, StepKey(B, p, -1), SetKey(C, p, 0))
+    assert playing(s).semitones == 0, "Reset is still absolute"
+    s = run(s, *(StepKey(A, p, 1) for _ in range(9)))
+    assert playing(s).semitones == 6, "steps clamp at the top of the range"
+    assert reduce(s, StepKey(A, p, 1)).state is s
+    assert reduce(s, StepKey(A, p, 2)).outcome == Rejected("invalid_value")
+    assert reduce(s, StepKey(A, PlayId(p + 1), 1)).outcome == Rejected("stale_play")
+
+
+def test_vocal_switch_restores_the_same_level_for_every_phone() -> None:
+    """Spec "Keep settings in sync": the restore level lives on the server, so the switch on any phone
+    turns the vocal back on at the level it had, and at full if it was never on."""
+    s = party()
+    s = run(s, SetVocalOn(A, True))
+    assert s.settings.vocal_level == 1.0, "never on: turns on at full"
+    s = run(s, SetVocal(A, 0.35), SetVocalOn(B, False))
+    assert s.settings.vocal_level == 0.0
+    s = run(s, SetVocalOn(C, True))
+    assert s.settings.vocal_level == 0.35, "phone C restores the level phone A set"
+    s = run(s, SetVocal(A, 0.0), SetVocalOn(B, True))
+    assert s.settings.vocal_level == 0.35, "dragging the slider to zero does not lose the restore level"
 
 
 def test_names_and_unknown_singer() -> None:
@@ -295,7 +325,9 @@ inputs: st.SearchStrategy[Input] = st.one_of(
     st.builds(SetPaused, singers, play_ids, st.booleans()),
     st.builds(Skip, singers, play_ids),
     st.builds(SetKey, singers, play_ids, st.integers(-8, 8)),
+    st.builds(StepKey, singers, play_ids, st.sampled_from([-1, 1, 2])),
     st.builds(SetVocal, singers, st.floats(-0.5, 1.5)),
+    st.builds(SetVocalOn, singers, st.booleans()),
     st.builds(SetAvOffset, singers, st.floats(-0.5, 1.5)),
     st.builds(ResolveRestart, st.booleans()),
     st.builds(TrackEnded, play_ids),

@@ -15,7 +15,7 @@ from karaoke import contract as c
 from karaoke.core import SingerId, SongId
 from karaoke.party import (
     Before, End, EntryId, Front, Input, MoveEntry, PlayId, Position, QueueSong, RemoveEntry, Rename, ResolveRestart,
-    SetAvOffset, SetKey, SetPaused, SetVocal, Skip, TrackEnded, TrackFailed,
+    SetAvOffset, SetKey, SetPaused, SetVocal, SetVocalOn, Skip, StepKey, TrackEnded, TrackFailed,
 )
 from karaoke.songs.catalog import Catalog, PickId
 from karaoke.songs.library import Library
@@ -48,8 +48,12 @@ def phone_input(cmd: c.PhoneCommand, by: SingerId, library: Library, catalog: Ca
             return Skip(by, PlayId(play_id))
         case c.SetKeyCmd(play_id=play_id, semitones=semitones):
             return SetKey(by, PlayId(play_id), semitones)
+        case c.StepKeyCmd(play_id=play_id, step=step):
+            return StepKey(by, PlayId(play_id), step)
         case c.SetVocalCmd(level=level):
             return SetVocal(by, level)
+        case c.SetVocalOnCmd(on=on):
+            return SetVocalOn(by, on)
         case c.SetAvOffsetCmd(seconds=seconds):
             return SetAvOffset(by, seconds)
         case c.RenameCmd(name=name):

@@ -214,9 +214,24 @@ class SetKeyCmd(Wire):
     semitones: int
 
 
+class StepKeyCmd(Wire):
+    """The key + and - buttons. A step, not a target, so a phone behind on updates cannot move the key back."""
+
+    kind: Literal["stepKey"]
+    play_id: int
+    step: Literal[-1, 1]
+
+
 class SetVocalCmd(Wire):
     kind: Literal["setVocal"]
     level: float
+
+
+class SetVocalOnCmd(Wire):
+    """The vocal switch. On restores the level the server remembers, the same for every phone."""
+
+    kind: Literal["setVocalOn"]
+    on: bool
 
 
 class SetAvOffsetCmd(Wire):
@@ -235,8 +250,8 @@ class ResolveRestartCmd(Wire):
 
 
 PhoneCommand = Annotated[
-    QueueLibraryCmd | QueuePickCmd | RemoveCmd | MoveCmd | SetPausedCmd | SkipCmd | SetKeyCmd
-    | SetVocalCmd | SetAvOffsetCmd | RenameCmd | ResolveRestartCmd,
+    QueueLibraryCmd | QueuePickCmd | RemoveCmd | MoveCmd | SetPausedCmd | SkipCmd | SetKeyCmd | StepKeyCmd
+    | SetVocalCmd | SetVocalOnCmd | SetAvOffsetCmd | RenameCmd | ResolveRestartCmd,
     Field(discriminator="kind"),
 ]
 

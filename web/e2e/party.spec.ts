@@ -148,6 +148,49 @@ test("the vocal switch turns the vocal off and back to its level", async ({ part
   await expect(tv.getByTestId("tv-key")).toHaveText(/Key\s*-1/);
 });
 
+test("two phones and the TV always agree on the vocal and the key", async ({ party }) => {
+  const tv = await party.tv();
+  await waitForTv(tv, (x) => x.stage.kind === "playing", "filler started");
+  const alice = await party.phone("Alice");
+  const bob = await party.phone("Bob");
+  await alice.getByTestId("pause").click();
+  await waitForTv(tv, (x) => x.paused, "paused");
+  const agree = async (pct: string, gain: number, key: string, semitones: number): Promise<void> => {
+    for (const phone of [alice, bob]) {
+      await expect(phone.getByTestId("vocal-value")).toHaveText(new RegExp(pct), { timeout: 2000 });
+      await expect(phone.getByTestId("key-value")).toHaveText(key, { timeout: 2000 });
+    }
+    await waitForTv(tv, (x) => Math.abs(x.vocalGain - gain) < 0.001 && x.semitones === semitones, `TV ${pct} ${key}`);
+  };
+
+  await alice.getByTestId("vocal-slider").fill("70");
+  await agree("70%", 0.7, "0", 0);
+
+  // Bob's finger lands on the slider and the browser cancels the touch (it became a scroll), so no pointerup.
+  // Before the fix Bob's slider froze on its own value and later sent it, overriding everyone else.
+  const slider = bob.getByTestId("vocal-slider");
+  await slider.dispatchEvent("pointerdown", { pointerType: "touch" });
+  await slider.fill("20");
+  await slider.dispatchEvent("pointercancel", { pointerType: "touch" });
+  await agree("20%", 0.2, "0", 0);
+  await alice.getByTestId("vocal-slider").fill("50");
+  await agree("50%", 0.5, "0", 0);
+
+  // The switch restores the server's level on every phone, not each phone's own memory.
+  await bob.getByTestId("vocal-toggle").click();
+  await agree("Off", 0, "0", 0);
+  await alice.getByTestId("vocal-toggle").click();
+  await agree("50%", 0.5, "0", 0);
+
+  // Key presses from both phones are steps, so three presses land on +3 everywhere.
+  await alice.getByTestId("key-up").click();
+  await bob.getByTestId("key-up").click();
+  await alice.getByTestId("key-up").click();
+  await agree("50%", 0.5, "+3", 3);
+  await bob.getByTestId("key-reset").click();
+  await agree("50%", 0.5, "0", 0);
+});
+
 test("the control page shows every screen at once and drives the TV with the mouse", async ({ party }) => {
   const tv = await party.tv();
   await waitForTv(tv, (x) => x.stage.kind === "playing", "filler started");

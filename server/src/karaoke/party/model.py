@@ -114,6 +114,9 @@ Phase = AwaitingRestartChoice | Running
 class Settings:
     vocal_level: float = 0.0
     """0.0 (off) .. 1.0 (full). Party-wide and sticky across songs (Assumption)."""
+    vocal_restore: float = 1.0
+    """The level the vocal switch turns back on to: the last level above zero. Held here, not on the phones,
+    so every phone restores the same level."""
     av_offset_s: float = 0.0
     """TV display lag. Video and lyrics are drawn this much earlier than the audible position."""
 

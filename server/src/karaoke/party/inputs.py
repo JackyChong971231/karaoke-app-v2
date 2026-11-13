@@ -92,13 +92,30 @@ class SetKey:
     by: SingerId
     play: PlayId
     semitones: int
-    """Absolute. The phone sends current +/- 1; two concurrent taps from the same base land on one step."""
+    """Absolute. Used by Reset (0). The +/- buttons send StepKey instead."""
+
+
+@dataclass(frozen=True, slots=True)
+class StepKey:
+    by: SingerId
+    play: PlayId
+    step: int
+    """+1 or -1, applied to the key as it is now. A phone that has not yet seen another phone's change
+    cannot move the key back. Clamped to KEY_MIN..KEY_MAX."""
 
 
 @dataclass(frozen=True, slots=True)
 class SetVocal:
     by: SingerId
     level: float
+
+
+@dataclass(frozen=True, slots=True)
+class SetVocalOn:
+    """The vocal switch. On restores Settings.vocal_restore; off sets the level to 0."""
+
+    by: SingerId
+    on: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,7 +131,7 @@ class ResolveRestart:
 
 PhoneCommand = (
     Hello | Rename | QueueSong | RemoveEntry | MoveEntry
-    | SetPaused | Skip | SetKey | SetVocal | SetAvOffset | ResolveRestart
+    | SetPaused | Skip | SetKey | StepKey | SetVocal | SetVocalOn | SetAvOffset | ResolveRestart
 )
 
 # ---- TV reports ---------------------------------------------------------------------

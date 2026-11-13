@@ -142,18 +142,42 @@ function Transport(props: { now: NowView }): JSX.Element {
   );
 }
 
+/** Sends at most this often while dragging. The last value of a drag is always sent, by a trailing timer. */
+const VOCAL_SEND_MS = 100;
+/** A drag with no movement for this long ends, so a touch the browser never finished cannot freeze the slider. */
+const VOCAL_DRAG_IDLE_MS = 1500;
+
+// The server owns the level and the level the switch restores. This card shows the server's value except while
+// this phone's finger is on the slider, and it sends only values the singer just set: ending a drag sends nothing,
+// whichever way it ends (lift, cancel, scroll, blur), so a stale local value can never reach the server.
 function VocalCard(props: { level: number }): JSX.Element {
   const store = useStore();
   const { pending } = usePhone();
   const [drag, setDrag] = useState<number | null>(null);
-  const lastSent = useRef(0);
-  // The switch turns the vocal off and back on at the level it had, or full if it was never on here.
-  const restoreTo = useRef(props.level > 0 ? props.level : 1);
-  if (props.level > 0 && drag === null) restoreTo.current = props.level;
+  const lastSentAt = useRef(0);
+  const trailing = useRef<number | undefined>(undefined);
+  const idle = useRef<number | undefined>(undefined);
+  useEffect(() => () => {
+    window.clearTimeout(trailing.current);
+    window.clearTimeout(idle.current);
+  }, []);
   const shown = drag ?? props.level;
   const send = (level: number): void => {
-    lastSent.current = performance.now();
+    lastSentAt.current = performance.now();
     void store.run(`vocal:${String(level)}`, { kind: "setVocal", level });
+  };
+  const endDrag = (): void => {
+    window.clearTimeout(idle.current);
+    setDrag(null);
+  };
+  const moved = (level: number): void => {
+    setDrag(level);
+    window.clearTimeout(trailing.current);
+    const wait = VOCAL_SEND_MS - (performance.now() - lastSentAt.current);
+    if (wait <= 0) send(level);
+    else trailing.current = window.setTimeout(() => { send(level); }, wait);
+    window.clearTimeout(idle.current);
+    idle.current = window.setTimeout(endDrag, VOCAL_DRAG_IDLE_MS);
   };
   const busy = [...pending].some((p) => p.startsWith("vocal:"));
   const pct = Math.round(shown * 100);
@@ -172,11 +196,13 @@ function VocalCard(props: { level: number }): JSX.Element {
             role="switch"
             className="switch"
             data-testid="vocal-toggle"
-            aria-checked={shown > 0}
+            aria-checked={props.level > 0}
             aria-label="Guide vocal on or off"
+            disabled={pending.has("vocalSwitch")}
             onClick={() => {
-              setDrag(null);
-              send(shown > 0 ? 0 : restoreTo.current);
+              window.clearTimeout(trailing.current);
+              endDrag();
+              void store.run("vocalSwitch", { kind: "setVocalOn", on: props.level === 0 });
             }}
           >
             <span className="switch-knob" />
@@ -193,20 +219,13 @@ function VocalCard(props: { level: number }): JSX.Element {
         value={pct}
         style={{ "--fill": `${String(pct)}%` }}
         aria-label="Guide vocal volume"
-        onChange={(e) => {
-          const level = Number(e.currentTarget.value) / 100;
-          setDrag(level);
-          if (performance.now() - lastSent.current > 100) send(level);
-        }}
-        onPointerUp={(e) => {
-          send(Number(e.currentTarget.value) / 100);
-          setDrag(null);
-        }}
-        onKeyUp={(e) => {
-          send(Number(e.currentTarget.value) / 100);
-          setDrag(null);
-        }}
-        onBlur={() => { setDrag(null); }}
+        onChange={(e) => { moved(Number(e.currentTarget.value) / 100); }}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onLostPointerCapture={endDrag}
+        onTouchEnd={endDrag}
+        onTouchCancel={endDrag}
+        onBlur={endDrag}
       />
       <div className="card-scale">
         <span>Off</span>
@@ -220,8 +239,12 @@ function KeyCard(props: { now: NowView }): JSX.Element {
   const store = useStore();
   const { pending } = usePhone();
   const { now } = props;
+  // + and - send a step, not a target, so a phone that has not yet seen another phone's change cannot move the
+  // key back. Reset is absolute. Steps are not blocked by a pending reply: each tap is one step.
   const setKey = (semitones: number): void =>
     void store.run("key", { kind: "setKey", playId: now.playId, semitones });
+  const stepKey = (step: -1 | 1): void =>
+    void store.run(`key:${String(performance.now())}`, { kind: "stepKey", playId: now.playId, step });
   const busy = pending.has("key");
   return (
     <div className="card">
@@ -241,7 +264,7 @@ function KeyCard(props: { now: NowView }): JSX.Element {
           data-testid="key-down"
           aria-label="Lower key"
           disabled={busy || now.semitones <= KEY_MIN}
-          onClick={() => { setKey(now.semitones - 1); }}
+          onClick={() => { stepKey(-1); }}
         >
           <Icon name="minus" />
         </button>
@@ -253,7 +276,7 @@ function KeyCard(props: { now: NowView }): JSX.Element {
           data-testid="key-up"
           aria-label="Raise key"
           disabled={busy || now.semitones >= KEY_MAX}
-          onClick={() => { setKey(now.semitones + 1); }}
+          onClick={() => { stepKey(1); }}
         >
           <Icon name="plus" />
         </button>

@@ -13,7 +13,8 @@ from karaoke.core import SongMeta
 from karaoke.party import fairness
 from karaoke.party.inputs import (
     Before, End, FillerPicked, Front, Hello, Input, MoveEntry, QueueSong, RemoveEntry, Rename, ResolveRestart,
-    SetAvOffset, SetKey, SetPaused, SetVocal, Skip, SongReady, TrackEnded, TrackFailed, TvPresence,
+    SetAvOffset, SetKey, SetPaused, SetVocal, SetVocalOn, Skip, SongReady, StepKey, TrackEnded, TrackFailed,
+    TvPresence,
 )
 from karaoke.party.model import (
     AV_OFFSET_MAX_S, FILLER_MEMORY, KEY_MAX, KEY_MIN, NAME_MAX, Accepted, AwaitingRestartChoice, DurableSnapshot,
@@ -104,6 +105,17 @@ def reduce(state: PartyState, inp: Input) -> Step:
             assert isinstance(state.now, Playing)
             return _ok(replace(state, now=replace(state.now, semitones=semitones)))
 
+        case StepKey(_, play, step):
+            if (bad := _check_play(state, play)) is not None:
+                return _reject(state, bad)
+            if step not in (-1, 1):
+                return _reject(state, "invalid_value")
+            assert isinstance(state.now, Playing)
+            moved = min(KEY_MAX, max(KEY_MIN, state.now.semitones + step))
+            if moved == state.now.semitones:
+                return Step(state, Accepted())
+            return _ok(replace(state, now=replace(state.now, semitones=moved)))
+
         case Skip(_, play) | TrackEnded(play) | TrackFailed(play, _):
             if (bad := _check_play(state, play)) is not None:
                 return _reject(state, bad)
@@ -112,6 +124,11 @@ def reduce(state: PartyState, inp: Input) -> Step:
         case SetVocal(_, level):
             if not 0.0 <= level <= 1.0:
                 return _reject(state, "invalid_value")
+            restore = level if level > 0 else state.settings.vocal_restore
+            return _ok(replace(state, settings=replace(state.settings, vocal_level=level, vocal_restore=restore)))
+
+        case SetVocalOn(_, on):
+            level = state.settings.vocal_restore if on else 0.0
             return _ok(replace(state, settings=replace(state.settings, vocal_level=level)))
 
         case SetAvOffset(_, seconds):
