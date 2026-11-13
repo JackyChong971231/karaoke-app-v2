@@ -52,7 +52,9 @@ def _ugc(video_id: str, title: str) -> _Video:
 
 CATALOG: tuple[_Song, ...] = (
     _Song("fkatv000001", "Fake Song One", "Fake Song One", "UCfakeArtistA", "Fake Artist", "Fake Artist",
-          (_omv("fkomv000001", "Fake Artist - Fake Song One (Official Music Video)", "UCfakeArtistA", "Fake Artist"),)),
+          (_ugc("fkugc000011", "Fake Song One (karaoke cover)"),
+           _omv("fkomv000001", "Fake Artist - Fake Song One (Official Music Video)", "UCfakeArtistA", "Fake Artist"),
+           _ugc("fkugc000012", "Fake Song One lyric video"))),
     _Song("fkatv000002", "測試之歌", "測試之歌", "UCfakeArtistB", "測試歌手", "Test Singer",
           (_omv("fkomv000002", "測試歌手《測試之歌》Official MV", "UCfakeArtistB", "測試歌手"),)),
     _Song("fkatv000003", "超複雜", "Complicated Fake", "UCfakeArtistC", "艾薇兒假", "Avril Fake",
@@ -63,6 +65,16 @@ CATALOG: tuple[_Song, ...] = (
     _Song("fkatv000005", "Second Fake Hit", "Second Fake Hit", "UCfakeArtistA", "Fake Artist", "Fake Artist",
           (_omv("fkomv000005", "Fake Artist - Second Fake Hit (Official Music Video)", "UCfakeArtistA", "Fake Artist"),)),
 )
+
+
+LIBRARY_VIDEOS: tuple[tuple[str, str, tuple[_Video, ...]], ...] = (
+    ("library band", "morning sun", (
+        _omv("fklib000001", "Library Band - Morning Sun (Official Music Video)", "UCfakeLibBand", "Library Band"),
+        _ugc("fkugc000101", "Morning Sun (live at the library)"),
+    )),
+)
+"""Video search results for library songs, so "Other videos" has something to offer. Not song search results,
+so the library songs never also appear as online songs."""
 
 
 def thumb(video_id: str) -> str:
@@ -89,12 +101,13 @@ class FakeYouTubeMusic:
 
     def videos(self, query: str) -> list[dict[str, Any]]:
         q = query.casefold()
+        found = [v for s in CATALOG if s.zh_artist.casefold() in q and s.zh_title.casefold() in q for v in s.videos]
+        found += [v for artist, title, vids in LIBRARY_VIDEOS if artist in q and title in q for v in vids]
         return [
             {"resultType": "video", "videoId": v.video_id, "title": v.title, "videoType": v.video_type,
              "artists": [{"name": v.artist_name, "id": v.artist_id}], "thumbnails": [{"url": thumb(v.video_id), "width": 320, "height": 180}],
              **_duration()}
-            for s in CATALOG if s.zh_artist.casefold() in q and s.zh_title.casefold() in q
-            for v in s.videos
+            for v in found
         ]
 
     def artist(self, artist: ArtistId, language: str) -> dict[str, Any]:

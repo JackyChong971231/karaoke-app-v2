@@ -125,6 +125,36 @@ def test_no_official_video_offers_candidates_each_with_its_own_pick(library: Lib
     assert cat.pick("forged") is None  # type: ignore[arg-type]
 
 
+def test_video_options_put_the_official_video_first_and_still_offer_others(library: Library) -> None:
+    """Spec "Choose the video": the phone always shows a list, the best guess first and marked."""
+    yt = FakeYT()
+    yt.vids = [video("cover", "陀飛輪 cover", "UCother"), video("omv", "陳奕迅 Eason Chan - 陀飛輪 MV", EASON),
+               video("cover", "duplicate", "UCother"), *(video(f"v{i}", f"陀飛輪 {i}", "UCother") for i in range(9))]
+    cat = Catalog(library, yt)
+    key = asyncio.run(cat.search("x")).online[0].key  # type: ignore[union-attr]
+    options = asyncio.run(cat.video_options(key))
+    assert [o.video_id for o in options] == ["omv", "cover", "v0", "v1", "v2", "v3"]
+    assert [o.official for o in options] == [True, False, False, False, False, False]
+    picked = cat.pick(options[1].pick)
+    assert picked == SongMeta(SongId("cover"), "陀飛輪", ArtistRef(ArtistId(EASON), "陳奕迅"), 270.0)
+
+
+def test_video_options_for_a_library_song_leave_out_its_current_video(library: Library) -> None:
+    meta = SongMeta(SongId("omv"), "陀飛輪", ArtistRef(ArtistId(EASON), "陳奕迅"), 250)
+    d = library.staging_dir(meta.id)
+    for f in ("video.mp4", "instrumental.opus", "vocals.opus", "lyrics.json"):
+        (d / f).write_bytes(b"x")
+    library.install(meta.id, SongRecord(meta, ("陳奕迅",), ("陀飛輪",), "zh", "lrclib", ""))
+    yt = FakeYT()
+    yt.vids = [video("omv", "陳奕迅 - 陀飛輪 MV", EASON), video("live", "陀飛輪 live", "UCother")]
+    cat = Catalog(library, yt)
+    options = asyncio.run(cat.video_options("lib:omv"))  # type: ignore[arg-type]
+    assert [o.video_id for o in options] == ["live"]
+    assert cat.pick(options[0].pick) == SongMeta(SongId("live"), "陀飛輪", meta.artist, 270.0)
+    with pytest.raises(UnknownOnlineKey):
+        asyncio.run(cat.video_options("lib:missing"))  # type: ignore[arg-type]
+
+
 def test_unknown_key_raises(library: Library) -> None:
     with pytest.raises(UnknownOnlineKey):
         asyncio.run(Catalog(library, FakeYT()).resolve_video("nope"))  # type: ignore[arg-type]

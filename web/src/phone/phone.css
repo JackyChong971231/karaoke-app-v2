@@ -1681,3 +1681,21 @@ h3 {
     transition-duration: 1ms !important;
   }
 }
+
+/* ---- video choice (2026-11-12) ---- */
+.link-sm {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  padding: 2px 0;
+}
+
+.video-official {
+  align-self: flex-start;
+  margin-bottom: 2px;
+}
+
+[data-testid="video-picker"] .btn-block {
+  margin-bottom: 14px;
+}

@@ -30,6 +30,9 @@ export const api = {
   artist: (artistId: string, signal: AbortSignal) => request<ArtistResponse>(`/api/artist/${q(artistId)}`, { signal }),
   videoChoice: (onlineKey: string, signal: AbortSignal) =>
     request<VideoChoiceResponse>(`/api/video-choice?key=${q(onlineKey)}`, { signal }),
+  /** Phones: always a list, the official video first and flagged. `key` may be `lib:<song id>`. */
+  videoOptions: (onlineKey: string, signal: AbortSignal) =>
+    request<VideoChoiceResponse>(`/api/video-options?key=${q(onlineKey)}`, { signal }),
   lyrics: (songId: string, signal: AbortSignal) => request<LyricsDoc>(`/media/${q(songId)}/lyrics.json`, { signal }),
   importPlan: (signal?: AbortSignal) => request<ImportPlanView>("/api/import", signal ? { signal } : {}),
   importMatch: (limit: number | null) =>

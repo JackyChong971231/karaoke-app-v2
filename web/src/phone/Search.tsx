@@ -215,6 +215,13 @@ function Results(props: {
                     <span className="chip-dot" /> Ready
                   </span>
                   {hit.lyricsFlagged && <span className="chip chip-warn">Lyrics may be wrong</span>}
+                  <button
+                    className="link link-sm"
+                    data-testid="library-other-videos"
+                    onClick={() => { props.pick.dispatch({ type: "choose", song: libraryAsPickSong(hit) }); }}
+                  >
+                    <Icon name="video" size={14} /> Other videos
+                  </button>
                 </div>
               </div>
               <AddButton
@@ -343,7 +350,20 @@ function ResultSkeleton(): JSX.Element {
   );
 }
 
-/** Bottom sheet of candidate videos, shown only when no official music video was found. */
+/** A library song as a pick-flow song, so "Other videos" reuses the same sheet. */
+export function libraryAsPickSong(hit: LibrarySongHit): OnlineSongHit {
+  return {
+    onlineKey: `lib:${hit.song.songId}`,
+    title: hit.song.title,
+    artist: hit.song.artist,
+    artistId: hit.song.artistId,
+    durationS: hit.song.durationS,
+    thumbnailUrl: "",
+  };
+}
+
+/** Bottom sheet of videos. Phones always see it: the official music video first, marked, with one button to queue
+ *  it. The import page sees it only when no official video was found. */
 export function VideoPicker(props: { pick: PickController }): JSX.Element {
   const flow = usePickFlow(props.pick);
   const candidates =
@@ -356,6 +376,9 @@ export function VideoPicker(props: { pick: PickController }): JSX.Element {
   const lastCandidates = useRef(candidates);
   if (candidates !== null) lastCandidates.current = candidates;
   const shown = candidates ?? lastCandidates.current ?? [];
+  const best = shown[0];
+  const hasOfficial = best?.official === true;
+  const otherVideos = shownSong?.onlineKey.startsWith("lib:") === true;
 
   return (
     <Sheet
@@ -364,13 +387,27 @@ export function VideoPicker(props: { pick: PickController }): JSX.Element {
       testId="video-picker"
       title={
         <div>
-          <div className="sheet-heading">Pick a video</div>
+          <div className="sheet-heading">{otherVideos ? "Other videos" : "Choose the video"}</div>
           <div className="sheet-sub">
-            No official music video found{shownSong ? ` for “${shownSong.title}”` : ""}. Choose the one to sing with.
+            {otherVideos
+              ? `Sing “${shownSong.title}” with another video. It is prepared as a new copy.`
+              : hasOfficial
+                ? "The official music video is first. Tap another video to sing with that one instead."
+                : `No official music video found${shownSong ? ` for “${shownSong.title}”` : ""}. Choose the one to sing with.`}
           </div>
         </div>
       }
     >
+      {best !== undefined && !otherVideos && (
+        <button
+          className="btn btn-primary btn-block"
+          data-testid="video-queue-best"
+          disabled={flow.step !== "choosing"}
+          onClick={() => { props.pick.dispatch({ type: "tap", pickId: best.pickId }); }}
+        >
+          <Icon name="plus" size={20} /> {hasOfficial ? "Queue the official MV" : "Queue the top video"}
+        </button>
+      )}
       <ul className="videos">
         {shown.map((c) => {
           const busy = flow.step === "queuing" && flow.pickId === c.pickId;
@@ -392,6 +429,11 @@ export function VideoPicker(props: { pick: PickController }): JSX.Element {
                   )}
                 </span>
                 <span className="video-text">
+                  {c.official && (
+                    <span className="chip chip-ready video-official" data-testid="video-official">
+                      <Icon name="star" size={12} /> Official MV
+                    </span>
+                  )}
                   <span className="video-title">{c.title}</span>
                   <span className="video-channel">{c.channel}</span>
                 </span>

@@ -75,6 +75,12 @@ class VideoCandidate:
     channel: str
     thumbnail_url: str
     duration_s: float
+    official: bool = False
+    """Passes the strict official-music-video rule. At most one per list, and always first."""
+
+
+LIBRARY_KEY_PREFIX = "lib:"
+"""A video-options key for a library song: `lib:<song id>`. Lets a singer queue a library song with another video."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -336,6 +342,47 @@ class Catalog:
             for v in videos[:CANDIDATES]
         ))
 
+    async def video_options(self, key: OnlineKey) -> tuple[VideoCandidate, ...]:
+        """For phones: up to CANDIDATES videos, the official music video first and flagged, so the singer can
+        take it with one tap or choose another. `key` is a search result's key, or `lib:<song id>` for a library
+        song, whose current video is left out because the normal queue button already plays it.
+        Raises UnknownOnlineKey for a key this process does not know."""
+        if key.startswith(LIBRARY_KEY_PREFIX):
+            rec = self._library.get(SongId(key.removeprefix(LIBRARY_KEY_PREFIX)))
+            if rec is None:
+                raise UnknownOnlineKey(key)
+            base = rec.meta
+            cores: tuple[str, ...] = (core_title(base.title),)
+            query, artist_id, skip = f"{base.artist.name} {cores[0]}", base.artist.id, {base.id}
+
+            def pick(v: dict) -> PickId:  # type: ignore[type-arg]
+                return self._pick_meta(SongMeta(SongId(v["videoId"]), base.title, base.artist,
+                                                _seconds(v) or base.duration_s), None)
+        else:
+            s: _Seen | None = self._seen.get(key)
+            if s is None:
+                raise UnknownOnlineKey(key)
+            seen = s
+            cores = _unique(core_title(s.zh_title), s.en_title and core_title(s.en_title))
+            query, artist_id, skip = f"{s.zh_artist} {cores[0]}", s.artist_id, set()
+
+            def pick(v: dict) -> PickId:  # type: ignore[type-arg]
+                return self._pick(seen, v)
+
+        found = [v for v in await asyncio.to_thread(self._yt.videos, query) if v.get("videoId")]
+        videos: list[dict] = []  # type: ignore[type-arg]
+        for v in found:
+            if v["videoId"] not in skip and all(v["videoId"] != w["videoId"] for w in videos):
+                videos.append(v)
+        official = next((v for v in videos if is_official_video(v, cores, artist_id)), None)
+        ordered = ([official] if official else []) + [v for v in videos if v is not official]
+        return tuple(
+            VideoCandidate(pick(v), SongId(v["videoId"]), v.get("title") or "",
+                           ", ".join(a.get("name", "") for a in v.get("artists") or []), _thumbnail(v), _seconds(v),
+                           official=v is official)
+            for v in ordered[:CANDIDATES]
+        )
+
     async def identify(self, video: SongId) -> OnlineKey | None:
         """The song a known official video belongs to, from YouTube Music's own record of that video rather
         than a text search. Text search guessed the wrong song for titles v1 had already pinned to a video id.
@@ -367,9 +414,13 @@ class Catalog:
     def _pick(self, s: _Seen, video: dict) -> PickId:  # type: ignore[type-arg]
         pub = s.public()
         meta = SongMeta(SongId(video["videoId"]), pub.title, pub.artist, _seconds(video) or s.duration_s)
+        return self._pick_meta(meta, s.names())
+
+    def _pick_meta(self, meta: SongMeta, names: SongNames | None) -> PickId:
         pick = PickId(secrets.token_urlsafe(9))
         self._picks.put(pick, meta)
-        self._names.put(meta.id, s.names())
+        if names is not None:
+            self._names.put(meta.id, names)
         return pick
 
     def pick(self, pick: PickId) -> SongMeta | None:

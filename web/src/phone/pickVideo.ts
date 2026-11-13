@@ -87,9 +87,12 @@ export class PickController {
   private flow: PickFlow = { step: "idle" };
   private readonly listeners = new Set<() => void>();
 
+  /** `fetch` defaults to the import page's lookup, which queues an official video with no question.
+   *  Phones pass `api.videoOptions`, which always returns a list to choose from. */
   constructor(
     private readonly commit: (pickId: string) => Promise<Outcome | null>,
     private readonly onDone: (song: OnlineSongHit) => void,
+    private readonly fetch: (key: string, signal: AbortSignal) => Promise<VideoChoiceResponse> = api.videoChoice,
   ) {}
 
   get = (): PickFlow => this.flow;
@@ -109,7 +112,7 @@ export class PickController {
     switch (task.task) {
       case "fetchVideoChoice": {
         const songKey = task.songKey;
-        api.videoChoice(songKey, new AbortController().signal).then(
+        this.fetch(songKey, new AbortController().signal).then(
           (response) => { this.dispatch({ type: "resolved", songKey, response }); },
           () => { this.dispatch({ type: "resolveFailed", songKey }); },
         );

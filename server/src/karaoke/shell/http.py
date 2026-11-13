@@ -4,7 +4,8 @@
     WS   /ws                        -> Hub.serve
     GET  /api/search?q=             -> contract.SearchResponse          (Catalog.search)
     GET  /api/artist/{artist_id}    -> contract.ArtistResponse          (Catalog.artist)
-    GET  /api/video-choice?key=     -> contract.VideoChoiceResponse     (Catalog.resolve_video)
+    GET  /api/video-choice?key=     -> contract.VideoChoiceResponse     (Catalog.resolve_video; import page)
+    GET  /api/video-options?key=    -> contract.ChooseVideoResponse     (Catalog.video_options; phones; key may be lib:<id>)
     GET  /media/{song_id}/{file}    -> Library.media_path; file restricted to vocab.MediaFile; Range requests on
     GET  /api/import                -> contract.ImportPlanView          (ImportService)
     POST /api/import/plan?limit=20  -> build or extend the plan (matching runs in the background)
@@ -37,7 +38,7 @@ from karaoke.shell.hub import Hub
 from karaoke.shell.views import board_readiness, song_view
 from karaoke.songs.catalog import (
     Catalog, ChooseVideo, LibraryHit, OfficialVideo, OnlineKey, OnlineSong, OnlineUnavailable, PickId,
-    VideoResolution,
+    UnknownOnlineKey, VideoResolution,
 )
 from karaoke.songs.library import Library
 from karaoke.songs.prepare import Preparer, PrepStatus
@@ -80,6 +81,16 @@ def routes(s: Services) -> list[BaseRoute]:
         if not key:
             return PlainTextResponse("missing key", status_code=400)
         return _json(_resolution(await s.catalog.resolve_video(OnlineKey(key))))
+
+    async def video_options(request: Request) -> Response:
+        key = request.query_params.get("key")
+        if not key:
+            return PlainTextResponse("missing key", status_code=400)
+        try:
+            found = await s.catalog.video_options(OnlineKey(key))
+        except UnknownOnlineKey:
+            return PlainTextResponse("unknown key", status_code=404)
+        return _json(_resolution(ChooseVideo(found)))
 
     async def media(request: Request) -> Response:
         file = request.path_params["file"]
@@ -140,6 +151,7 @@ def routes(s: Services) -> list[BaseRoute]:
         Route("/api/search", search),
         Route("/api/artist/{artist_id}", artist),
         Route("/api/video-choice", video_choice),
+        Route("/api/video-options", video_options),
         Route("/media/{song_id}/{file}", media),
         Route("/api/import", importer_route(import_view)),
         Route("/api/import/plan", importer_route(import_plan), methods=["POST"]),
@@ -178,7 +190,7 @@ def _resolution(r: VideoResolution) -> c.OfficialFound | c.ChooseVideoResponse:
         case ChooseVideo(candidates=candidates):
             return c.ChooseVideoResponse(kind="choose", candidates=[
                 c.VideoCandidateView(pick_id=v.pick, title=v.title, channel=v.channel,
-                                     thumbnail_url=v.thumbnail_url, duration_s=v.duration_s)
+                                     thumbnail_url=v.thumbnail_url, duration_s=v.duration_s, official=v.official)
                 for v in candidates
             ])
 

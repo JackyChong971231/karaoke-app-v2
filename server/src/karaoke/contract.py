@@ -425,6 +425,8 @@ class VideoCandidateView(Wire):
     channel: str
     thumbnail_url: str
     duration_s: float
+    official: bool = False
+    """The official music video. At most one, and first in the list."""
 
 
 class OfficialFound(Wire):

@@ -47,6 +47,36 @@ test("a second browser with a new name on the same phone is still one singer", a
   await expect(disguise.getByTestId("queue-row-singer")).toHaveText([/Hog \(you\)/, /^\s*Ben$/, /New Guy \(you\)/]);
 });
 
+test("a singer chooses the video: official first, or another one", async ({ party }) => {
+  const tv = await party.tv();
+  await waitForTv(tv, (x) => x.stage.kind === "playing", "filler started");
+  const phone = await party.phone("Alice");
+  await phone.getByTestId("pause").click();
+  await phone.getByTestId("tab-search").click();
+
+  await phone.getByTestId("search-input").fill("Fake Song One");
+  await phone.getByTestId("online-result").filter({ hasText: "Fake Song One" }).getByTestId("queue-online").click();
+  const videos = phone.getByTestId("video-candidate");
+  await expect(videos).toHaveCount(3);
+  await expect(videos.first()).toContainText("Official MV");
+  await expect(videos.first()).toContainText("Official Music Video");
+  await videos.filter({ hasText: "lyric video" }).click();
+  await expect(phone.getByTestId("toast").filter({ hasText: "Queued “Fake Song One”" })).toBeVisible();
+
+  // A library song can be sung with another video too; its own video is not offered again.
+  await phone.getByTestId("search-input").fill("Morning Sun");
+  await phone.getByTestId("library-result").filter({ hasText: "Morning Sun" }).getByTestId("library-other-videos").click();
+  await expect(videos).toHaveCount(1);
+  await expect(videos.first()).toContainText("live at the library");
+  await videos.first().click();
+  await expect(phone.getByTestId("toast").filter({ hasText: "Queued “Morning Sun”" })).toBeVisible();
+
+  const state = (await (await fetch(`${party.url}/test/state`)).json()) as {
+    party: { queue: { song: { id: string } }[] };
+  };
+  expect(state.party.queue.map((e) => e.song.id)).toEqual(["fkugc000012", "fkugc000101"]);
+});
+
 test("skip advances exactly one song with a double tap", async ({ party }) => {
   const tv = await party.tv();
   const filler = await waitForTv(tv, (x) => x.stage.kind === "playing", "filler started");

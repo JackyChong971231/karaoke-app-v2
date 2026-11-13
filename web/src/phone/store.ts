@@ -8,6 +8,7 @@
 // tapped control is cheaper than reconciling a guess with a concurrent edit from another phone.
 
 import { createContext, useContext, useSyncExternalStore } from "react";
+import { api } from "../wire/http";
 import { connectPhone, type Link, type PartySocket } from "../wire/socket";
 import type { Outcome, PhoneCommand, PhoneView } from "../wire/types";
 import { PickController } from "./pickVideo";
@@ -175,6 +176,7 @@ export function createPhoneStore(initial: Identity): PhoneStore {
     pick: new PickController(
       (pickId) => run(`pick:${pickId}`, { kind: "queuePick", pickId }, { quiet: true }),
       (song) => { toast(`Queued “${song.title}”`, "success"); },
+      api.videoOptions,
     ),
   };
 

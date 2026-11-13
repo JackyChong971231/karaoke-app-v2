@@ -27,6 +27,10 @@ test("screenshots of the TV and phone pages", async ({ party, browser }) => {
   await expect(bob.getByTestId("online-result").first()).toBeVisible();
   await shot(bob, "phone-search");
   await bob.getByTestId("online-result").first().getByTestId("queue-online").click();
+  await expect(bob.getByTestId("video-official")).toBeVisible();
+  await bob.waitForTimeout(400);
+  await shot(bob, "phone-video-choice");
+  await bob.getByTestId("video-queue-best").click();
   await expect(bob.getByTestId("toast").filter({ hasText: "Queued" }).last()).toBeVisible();
 
   await bob.getByTestId("search-input").fill("no video");
