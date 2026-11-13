@@ -33,6 +33,7 @@ from karaoke.shell.http import Services, routes, static_mount
 from karaoke.shell.hub import Hub
 from karaoke.shell.journal import Journal, replay
 from karaoke.shell.loop import PartyLoop
+from karaoke.shell.lifetime import tie_children_to_this_process
 from karaoke.shell.screens import open_pages
 from karaoke.shell.store import Store
 from karaoke.songs.browse import ArtistPlaces, Browse
@@ -130,6 +131,7 @@ async def serve(args: argparse.Namespace) -> None:
         print(f"  Note: web pages are not built yet ({args.web_dist}). Run `npm install && npm run build` in web/.")
     sys.stdout.flush()
 
+    tie_children_to_this_process()  # before any child starts: windows and preparation end with the app
     tasks = [asyncio.create_task(loop.run(), name="party-loop"),
              asyncio.create_task(preparer.run(), name="preparer")]
     if args.open_tv if args.open_tv is not None else not fake:

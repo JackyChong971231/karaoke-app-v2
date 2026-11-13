@@ -1,6 +1,6 @@
 @echo off
 rem Double-click to start karaoke. Opens the TV page on the second screen and the control page on this one.
-rem Close this window to stop the app. Starting again restarts it cleanly.
+rem Close this window to stop the app; the TV and control windows close with it. Starting again restarts it cleanly.
 rem To turn on the v1 import page, set KARAOKE_V1 to the v1 install folder before starting.
 
 title Karaoke - close this window to stop

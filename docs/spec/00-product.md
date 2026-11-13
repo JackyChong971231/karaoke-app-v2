@@ -41,6 +41,7 @@ The user's words: a 咪霸 might keep changing their name when adding songs, so 
 
 - On start, the app opens the TV page full screen on the second screen and the control page on the main screen.
 - Assumption: with only one screen, both pages open as ordinary windows, so the laptop is never trapped behind a full-screen TV page. The TV page's full-screen button enlarges it.
+- Closing the app's terminal window closes the TV page and the control page too (added 2026-11-12). The user's words: when I close the terminal, also close the karaoke control UI and the TV page. Assumption: this applies however the app stops, including Ctrl+C or a crash. Song preparation still running in the background stops with it. Pages opened by hand in another browser, and phones, stay open and show that the app is offline.
 
 Every singer has the same powers. There is no host role.
 

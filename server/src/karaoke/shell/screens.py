@@ -14,6 +14,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from karaoke.shell.lifetime import tie_children_to_this_process
+
 _EDGE_PATHS = (r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
                r"C:\Program Files\Microsoft\Edge\Application\msedge.exe")
 
@@ -112,5 +114,8 @@ def open_pages(port: int, data: Path) -> None:
     else:
         tv += ["--start-maximized", f"--app={base}/tv"]
         print("  Only one screen found: the TV page opened as a window. Use its full-screen button.")
+    # The windows close when the app stops, however it stops (terminal closed, Ctrl+C, crash).
+    if not tie_children_to_this_process():
+        print("  The TV and control windows stay open when the app stops; close them by hand.")
     subprocess.Popen(tv)
     subprocess.Popen([*control, f"--app={base}/control"])
