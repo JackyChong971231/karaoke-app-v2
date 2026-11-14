@@ -214,6 +214,26 @@ These implement the product spec's sections marked "added 2026-11-12".
 - New phone commands: add a favourite, remove a favourite, and queue a favourite. Queue a favourite is checked against the stored list, so a phone cannot queue an arbitrary video ID.
 - Restore after a laptop address change: a phone without a stored identity asks the server for a restore offer, first by its address, then by the typed name. The server answers with the list's name and song count, never its songs. On yes, the server moves the list to the new browser ID.
 
+## Changes for 2026-11-14: lyrics sites
+
+These implement the product spec's "Read the lyrics from a lyrics site".
+
+- New module `songs/lyric_sites.py`. It owns the site list (`vocab.LyricsSite`: `kkbox`, `lrclib`, `utanet`, `genius`), the order per song language, and one reader per site behind a `LyricsSites` port, so the fake world swaps in canned answers and never touches the internet.
+- `GET /api/site-lyrics?song=<id>` returns the song's sites in order. `GET /api/site-lyrics?song=<id>&site=<site>` returns one site's answer: the text and the page link, a link only (KKBOX), "no lyrics", or "site down". The song must be in the library, so a phone can only ask about a song the party knows. The search uses the library's title and singer.
+- Answers are kept in memory for 6 hours per song and site, so many phones opening the same song make one request. A "site down" answer is not kept.
+- How each site is read, probed 2026-11-14:
+
+  | Site | Find the song | Read the lyrics |
+  | --- | --- | --- |
+  | LRCLIB | `/api/search` by title and singer, the same matching as preparation | Plain lyrics, or synced lyrics with the times removed. LRCLIB has no song page, so no link. |
+  | Genius | `genius.com/api/search/multi`, first song hit whose title matches | The song page's `data-lyrics-container` blocks, skipping the blocks marked `data-exclude-from-selection` (headers and ads) |
+  | Uta-Net | `/search/?Keyword=<title>&Aselect=2&Bselect=3`, the row whose singer matches, else the first row whose title matches | The song page's `#kashi_area` |
+  | KKBOX | `/tw/tc/search?q=<title>`. Only the top result is in the page; the rest load by script. It is used when its title and singer match. | Not read: KKBOX answers song pages with a bot check (AWS WAF challenge). The app returns the page link only. Otherwise the link is the search page for title and singer. |
+
+- Chinese text is converted to Traditional with OpenCC `s2hk`. Credit lines such as 作詞 and 作曲 are kept, since the singer only reads the text.
+- Each request has a 10 s timeout. Any network error or unexpected page shape counts as "site down" for that site.
+- External integrations: a site changing its page shape shows that one site as down on the phone. The TV and preparation never depend on these sites.
+
 ## Verification
 
 - Unit tests cover the fairness order, including both examples in the product spec and the user's 2026-11-12 example.

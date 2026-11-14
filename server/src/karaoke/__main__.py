@@ -41,6 +41,7 @@ from karaoke.songs.browse import ArtistPlaces, Browse
 from karaoke.songs.catalog import Catalog, YouTubeMusic, YTMusicPort
 from karaoke.songs.favourites import Favourites
 from karaoke.songs.library import CloudSyncedRoot, Library
+from karaoke.songs.lyric_sites import LyricsSites, SiteLyrics, WebLyricsSites
 from karaoke.songs.prepare import Preparer, RealStages, Stages
 
 log = logging.getLogger("karaoke")
@@ -71,12 +72,14 @@ async def serve(args: argparse.Namespace) -> None:
         sys.exit(f"Refusing to use that library folder: {e}. Choose a local folder with --library.")
 
     harness_world = None
+    lyric_sites: LyricsSites = WebLyricsSites()
     yt: YouTubeMusic
     stages: Stages
     if fake:
         from karaoke.harness import fake_world
         harness_world = fake_world(data, library, args.fake_delay)
         yt, stages = harness_world.yt, harness_world.stages
+        lyric_sites = harness_world.lyric_sites
     else:
         yt = YTMusicPort()
     catalog = Catalog(library, yt)
@@ -112,7 +115,8 @@ async def serve(args: argparse.Namespace) -> None:
     browse = Browse(catalog, library, yt, places)
     services = Services(hub=hub, library=library, catalog=catalog, preparer=preparer, importer=importer,
                         web_dist=args.web_dist, browse=browse,
-                        thumbs=Thumbs(library, no_fetch if fake else youtube_picture))
+                        thumbs=Thumbs(library, no_fetch if fake else youtube_picture),
+                        site_lyrics=SiteLyrics(library, lyric_sites))
     extra: list[BaseRoute] = []
     if harness_world is not None:
         from karaoke.harness import harness_routes

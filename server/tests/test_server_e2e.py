@@ -17,6 +17,7 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -382,3 +383,19 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--url", default="http://localhost:8080")
     asyncio.run(party(parser.parse_args().url, say))
+
+
+def test_lyrics_sites_over_the_wire(server: str) -> None:
+    """Spec "Read the lyrics from a lyrics site": the phone asks for a library song's sites, then each site's
+    answer. The fake world gives one answer kind per site."""
+    sites = get(f"{server}/api/site-lyrics?song=fklib000002")
+    assert sites == {"sites": ["genius", "kkbox", "lrclib", "utanet"]}  # seeded as English, so Genius first
+    text = get(f"{server}/api/site-lyrics?song=fklib000002&site=lrclib")
+    assert text["kind"] == "text" and text["pageUrl"] is None and "河流 line one" in text["text"]
+    assert get(f"{server}/api/site-lyrics?song=fklib000002&site=kkbox") == {
+        "kind": "link", "site": "kkbox", "pageUrl": "https://www.kkbox.com/tw/tc/song/fakeSong", "found": True}
+    assert get(f"{server}/api/site-lyrics?song=fklib000002&site=utanet") == {"kind": "none", "site": "utanet"}
+    for bad, status in (("song=nosuchsong", 404), ("song=fklib000002&site=mojim", 400)):
+        with pytest.raises(urllib.error.HTTPError) as e:
+            get(f"{server}/api/site-lyrics?{bad}")
+        assert e.value.code == status

@@ -34,3 +34,6 @@ MediaFile = Literal["video.mp4", "instrumental.opus", "vocals.opus", "lyrics.jso
 
 PlaceId = Literal["hk", "tw", "cn", "jp", "kr", "west"]
 """The browse boxes, by where a singer is from (spec "Browse for songs"): 香港 台灣 中國 日本 韓國 歐美."""
+
+LyricsSite = Literal["kkbox", "lrclib", "utanet", "genius"]
+"""Lyrics websites a singer can read on their phone (spec "Read the lyrics from a lyrics site"). View only."""

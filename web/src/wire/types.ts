@@ -37,3 +37,5 @@ export type RestoreOfferResponse = Contract["restoreOffer"];
 export type FavouriteRef = Contract["favouriteAdd"]["ref"];
 export type PlaceId = Contract["browse"]["places"][number]["placeId"];
 export type ShelfItem = Contract["place"]["shelves"][number]["items"][number];
+export type SiteLyricsResponse = Contract["siteLyrics"];
+export type LyricsSite = Contract["lyricsSites"]["sites"][number];

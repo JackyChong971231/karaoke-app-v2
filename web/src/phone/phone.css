@@ -2021,3 +2021,108 @@ h3 {
     font-size: 56px;
   }
 }
+
+/* ---- lyrics from lyrics sites (2026-11-14): view only, on this phone ---- */
+.now-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.lyrics-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  transition: transform 120ms var(--ease);
+}
+
+.lyrics-button:active {
+  transform: scale(0.94);
+}
+
+.lyrics-sheet-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lyrics-tabs {
+  position: sticky;
+  top: -8px;
+  z-index: 1;
+  display: flex;
+  gap: 6px;
+  margin: 0 -16px;
+  padding: 8px 16px 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: #161624;
+}
+
+.lyrics-tab {
+  flex: none;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--muted);
+  background: var(--surface-2);
+}
+
+.lyrics-tab.is-on {
+  color: #fff;
+  background: var(--accent-grad);
+}
+
+.lyrics-body {
+  min-height: 160px;
+  padding-top: 6px;
+}
+
+.lyrics-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 17px;
+  line-height: 1.65;
+  color: var(--text);
+}
+
+.lyrics-source {
+  margin: 16px 0 0;
+  font-size: 13px;
+  color: var(--faint);
+}
+
+.lyrics-source a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: #c4b8ff;
+}
+
+.lyrics-note {
+  margin: 8px 0 14px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.lyrics-link .btn {
+  text-decoration: none;
+}
+
+.lyrics-loading {
+  display: grid;
+  place-items: center;
+  min-height: 160px;
+}

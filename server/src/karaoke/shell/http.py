@@ -10,6 +10,8 @@
     POST /api/artist-place          -> contract.ArtistPlaceRequest      (control page: where a singer is from)
     GET  /api/video-choice?key=     -> contract.VideoChoiceResponse     (Catalog.resolve_video; import page)
     GET  /api/video-options?key=    -> contract.ChooseVideoResponse     (Catalog.video_options; phones; key may be lib:<id>)
+    GET  /api/site-lyrics?song=        -> contract.LyricsSitesResponse     (the song's lyrics sites, its language's own first)
+    GET  /api/site-lyrics?song=&site=  -> contract.SiteLyricsResponse     (one site's lyrics; view only, never the TV's)
     GET  /api/favourites?browser=   -> contract.FavouritesResponse      (Favourites; one list per browser)
     POST /api/favourites/add|remove -> contract.FavouritesResponse
     GET  /api/favourites/offer?name=&browser= -> contract.RestoreOfferResponse (by phone address, then name)
@@ -32,7 +34,7 @@ import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import get_args
+from typing import cast, get_args
 
 from pydantic import ValidationError
 from starlette.requests import Request
@@ -51,13 +53,15 @@ from karaoke.songs.catalog import (
     UnknownOnlineKey, VideoResolution,
 )
 from karaoke.songs.library import Library
+from karaoke.songs.lyric_sites import SiteDown, SiteLink, SiteLyrics, SiteNone, SiteText
 from karaoke.songs.prepare import Preparer, PrepStatus
 from karaoke.songs.thumbs import Thumbs
-from karaoke.vocab import MediaFile
+from karaoke.vocab import LyricsSite, MediaFile
 
 log = logging.getLogger(__name__)
 IMPORT_FIRST_BATCH = 20
 _MEDIA_FILES: frozenset[str] = frozenset(get_args(MediaFile))
+_LYRICS_SITES: frozenset[str] = frozenset(get_args(LyricsSite))
 _MEDIA_TYPES = {".mp4": "video/mp4", ".opus": "audio/ogg", ".json": "application/json"}
 _PAGES = {"/": "index.html", "/control": "control.html", "/tv": "tv.html", "/import": "import.html"}
 
@@ -72,6 +76,7 @@ class Services:
     web_dist: Path
     browse: Browse | None = None
     thumbs: Thumbs | None = None
+    site_lyrics: SiteLyrics | None = None
     background: set[asyncio.Task[None]] = field(default_factory=set)
 
 
@@ -143,6 +148,26 @@ def routes(s: Services) -> list[BaseRoute]:
         except UnknownOnlineKey:
             return PlainTextResponse("unknown key", status_code=404)
         return _json(_resolution(ChooseVideo(found)))
+
+    # ---- lyrics sites: view only, on the singer's own phone ----
+
+    async def site_lyrics(request: Request) -> Response:
+        if s.site_lyrics is None:
+            return PlainTextResponse("lyrics sites are off", status_code=404)
+        song = SongId(request.query_params.get("song", ""))
+        site = request.query_params.get("site")
+        if site is None:
+            order = s.site_lyrics.sites(song)
+            if order is None:
+                return PlainTextResponse("unknown song", status_code=404)
+            return _json(c.LyricsSitesResponse(sites=list(order)))
+        if site not in _LYRICS_SITES:
+            return PlainTextResponse("unknown site", status_code=400)
+        site_id = cast(LyricsSite, site)
+        answer = await s.site_lyrics.lookup(song, site_id)
+        if answer is None:
+            return PlainTextResponse("unknown song", status_code=404)
+        return _json(_site_answer(site_id, answer))
 
     # ---- favourites: one list per browser, saved on the laptop ----
 
@@ -280,6 +305,7 @@ def routes(s: Services) -> list[BaseRoute]:
         Route("/api/artist-place", artist_place, methods=["POST"]),
         Route("/api/video-choice", video_choice),
         Route("/api/video-options", video_options),
+        Route("/api/site-lyrics", site_lyrics),
         Route("/api/favourites", favourites),
         Route("/api/favourites/add", favourite_add, methods=["POST"]),
         Route("/api/favourites/remove", favourite_remove, methods=["POST"]),
@@ -315,6 +341,18 @@ def _online(online: tuple[OnlineSong, ...] | OnlineUnavailable) -> c.OnlineOk | 
                         duration_s=o.duration_s, thumbnail_url=o.thumbnail_url)
         for o in online
     ])
+
+
+def _site_answer(site: LyricsSite, a: SiteText | SiteLink | SiteNone | SiteDown) -> c.Wire:
+    match a:
+        case SiteText(text=text, page_url=url):
+            return c.SiteTextView(kind="text", site=site, text=text, page_url=url)
+        case SiteLink(page_url=url, found=found):
+            return c.SiteLinkView(kind="link", site=site, page_url=url, found=found)
+        case SiteNone():
+            return c.SiteNoneView(kind="none", site=site)
+        case SiteDown():
+            return c.SiteDownView(kind="down", site=site)
 
 
 def _shelf_item(item: LibraryHit | OnlineSong) -> c.LibraryShelfItem | c.OnlineShelfItem:

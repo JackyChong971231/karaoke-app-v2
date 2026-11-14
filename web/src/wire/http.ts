@@ -16,6 +16,9 @@ import type {
   ImportDecideRequest,
   ImportPlanView,
   LyricsDoc,
+  LyricsSite,
+  LyricsSitesResponse,
+  SiteLyricsResponse,
   SearchResponse,
   VideoChoiceResponse,
   WhoAmIResponse,
@@ -63,6 +66,11 @@ export const api = {
   restoreOffer: (name: string | null) =>
     request<RestoreOfferResponse>(name === null ? "/api/favourites/offer" : `/api/favourites/offer?name=${q(name)}`),
   restoreClaim: (body: RestoreClaimRequest) => post<FavouritesResponse>("/api/favourites/claim", body),
+  /** The song's lyrics sites, its language's own first. View only: they never change the TV's lyrics. */
+  lyricsSites: (songId: string, signal: AbortSignal) =>
+    request<LyricsSitesResponse>(`/api/site-lyrics?song=${q(songId)}`, { signal }),
+  siteLyrics: (songId: string, site: LyricsSite, signal: AbortSignal) =>
+    request<SiteLyricsResponse>(`/api/site-lyrics?song=${q(songId)}&site=${q(site)}`, { signal }),
   lyrics: (songId: string, signal: AbortSignal) => request<LyricsDoc>(`/media/${q(songId)}/lyrics.json`, { signal }),
   importPlan: (signal?: AbortSignal) => request<ImportPlanView>("/api/import", signal ? { signal } : {}),
   importMatch: (limit: number | null) =>

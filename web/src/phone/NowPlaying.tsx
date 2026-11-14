@@ -2,6 +2,7 @@ import type { JSX } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { NowView, PhoneView } from "../wire/types";
 import { FavHeart } from "./Favourites";
+import { LyricsButton } from "./LyricsSites";
 import { usePhone, useStore } from "./store";
 import { formatKey, formatTime } from "./text";
 import { Art, Icon, LyricsFlag, Marquee, ReadinessChip, Spinner } from "./ui";
@@ -47,7 +48,10 @@ export function NowPlaying(props: { onFindSong: () => void }): JSX.Element {
             )}
           </div>
         </div>
-        <FavHeart songRef={{ kind: "song", songId: now.song.songId }} title={now.song.title} artistId={now.song.artistId} size="md" />
+        <div className="now-actions">
+          <LyricsButton songId={now.song.songId} title={now.song.title} artist={now.song.artist} />
+          <FavHeart songRef={{ kind: "song", songId: now.song.songId }} title={now.song.title} artistId={now.song.artistId} size="md" />
+        </div>
       </div>
       <Progress now={now} />
       <Transport now={now} />

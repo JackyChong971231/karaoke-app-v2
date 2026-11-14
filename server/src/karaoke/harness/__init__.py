@@ -7,6 +7,7 @@ and the real built TV and phone pages:
     FakeYouTubeMusic   fixture search results (fakes.CATALOG), incl. a song with NO official video
                        ("No Video Song", drives the pick-a-video flow) and a query that raises
                        (any query containing "explode", drives 'online search unavailable').
+    FakeLyricsSites    one fixed answer shape per lyrics site (text, text with page, link, nothing).
     FakeStages         copies real ffmpeg-generated fixture media (10 s tone stems, 10 s solid-colour video,
                        lyrics with known word times) into staging. Each stage takes --fake-delay seconds, or
                        waits for /test/prep/<song>/advance when the song is held, and can be told to fail.
@@ -37,7 +38,7 @@ from starlette.responses import JSONResponse, PlainTextResponse, Response
 from starlette.routing import BaseRoute, Route
 
 from karaoke.core import SongId
-from karaoke.harness.fakes import FailMode, FakeStages, FakeYouTubeMusic, seed_library
+from karaoke.harness.fakes import FailMode, FakeLyricsSites, FakeStages, FakeYouTubeMusic, seed_library
 from karaoke.harness.media import COLOURS, ensure_media
 from karaoke.party import Input
 from karaoke.shell.codec import decode, encode
@@ -51,12 +52,13 @@ from karaoke.songs.prepare import Preparer
 class FakeWorld:
     yt: FakeYouTubeMusic
     stages: FakeStages
+    lyric_sites: FakeLyricsSites
 
 
 def fake_world(data_dir: Path, library: Library, delay_s: float) -> FakeWorld:
     media = ensure_media(data_dir / "fixtures")
     seed_library(library, media)
-    return FakeWorld(FakeYouTubeMusic(), FakeStages(media, delay_s))
+    return FakeWorld(FakeYouTubeMusic(), FakeStages(media, delay_s), FakeLyricsSites())
 
 
 def harness_routes(world: FakeWorld, loop: PartyLoop, preparer: Preparer, journal: Journal) -> list[BaseRoute]:

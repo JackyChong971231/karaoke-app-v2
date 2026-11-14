@@ -362,3 +362,36 @@ test("the TV shows a full-screen button when the mouse moves", async ({ party })
   await expect(button).toHaveClass(/is-active/);
   await expect(button).toHaveAttribute("aria-label", "Full screen");
 });
+
+test("a singer reads the song's lyrics from lyrics sites on their phone", async ({ party }) => {
+  // Spec "Read the lyrics from a lyrics site". The fake world gives each site one answer kind.
+  const tv = await party.tv();
+  await waitForTv(tv, (x) => x.stage.kind === "playing", "filler started");
+  const phone = await party.phone("Alice");
+  await expect(phone.getByTestId("now-playing")).toBeVisible();
+  await phone.getByTestId("lyrics-sites-open").click();
+  const sheet = phone.getByTestId("lyrics-sites");
+  await expect(sheet).toBeVisible();
+
+  // Library songs are seeded as English, so Genius comes first and opens by itself.
+  await expect(sheet.getByRole("tab")).toHaveText(["Genius", "KKBOX", "LRCLIB", "Uta-Net"]);
+  await expect(sheet.getByTestId("lyrics-tab-genius")).toHaveAttribute("aria-selected", "true");
+  await expect(sheet.getByTestId("lyrics-site-text")).toContainText("line one (genius)");
+  await expect(sheet.getByTestId("lyrics-site-page")).toHaveAttribute("href", /^https:\/\/genius\.com\//);
+
+  await sheet.getByTestId("lyrics-tab-lrclib").click();
+  await expect(sheet.getByTestId("lyrics-site-text")).toContainText("chorus (lrclib)");
+  await expect(sheet.getByTestId("lyrics-site-page")).toHaveCount(0);
+
+  await sheet.getByTestId("lyrics-tab-kkbox").click();
+  const open = sheet.getByTestId("lyrics-site-link");
+  await expect(open).toHaveText(/Open lyrics on KKBOX/);
+  await expect(open).toHaveAttribute("href", "https://www.kkbox.com/tw/tc/song/fakeSong");
+  await expect(open).toHaveAttribute("target", "_blank");
+
+  await sheet.getByTestId("lyrics-tab-utanet").click();
+  await expect(sheet.getByTestId("lyrics-site-none")).toHaveText("Uta-Net has no lyrics for this song.");
+
+  await sheet.getByTestId("lyrics-sites-close").click();
+  await expect(sheet).toBeHidden();
+});

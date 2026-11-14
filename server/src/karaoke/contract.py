@@ -24,7 +24,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
-from karaoke.vocab import FailReason, ImportDecision, LyricsSource, PlaceId, PrepStage, RejectReason
+from karaoke.vocab import FailReason, ImportDecision, LyricsSite, LyricsSource, PlaceId, PrepStage, RejectReason
 
 
 class Wire(BaseModel):
@@ -521,6 +521,42 @@ class ChooseVideoResponse(Wire):
 VideoChoiceResponse = Annotated[OfficialFound | ChooseVideoResponse, Field(discriminator="kind")]
 
 
+# ---- lyrics sites (view only, on the singer's phone) ----
+
+class LyricsSitesResponse(Wire):
+    sites: list[LyricsSite]
+    """Every site, the song language's own site first."""
+
+
+class SiteTextView(Wire):
+    kind: Literal["text"]
+    site: LyricsSite
+    text: str
+    page_url: str | None
+    """The site's song page. None for LRCLIB, which has no song pages."""
+
+
+class SiteLinkView(Wire):
+    kind: Literal["link"]
+    site: LyricsSite
+    page_url: str
+    found: bool
+    """True: the song's own page on the site. False: the site's search results for the song."""
+
+
+class SiteNoneView(Wire):
+    kind: Literal["none"]
+    site: LyricsSite
+
+
+class SiteDownView(Wire):
+    kind: Literal["down"]
+    site: LyricsSite
+
+
+SiteLyricsResponse = Annotated[SiteTextView | SiteLinkView | SiteNoneView | SiteDownView, Field(discriminator="kind")]
+
+
 # ---- favourites (one list per browser) ----
 
 class FavouriteView(Wire):
@@ -633,5 +669,7 @@ class Contract(Wire):
     restore_offer: RestoreOfferResponse
     restore_claim: RestoreClaimRequest
     lyrics: LyricsDoc
+    lyrics_sites: LyricsSitesResponse
+    site_lyrics: SiteLyricsResponse
     import_plan: ImportPlanView
     import_decide: ImportDecideRequest

@@ -1,4 +1,4 @@
-"""The two fakes: YouTube Music (the internet edge) and the preparation stages (the network and GPU edge).
+"""The fakes: YouTube Music and the lyrics sites (the internet edge), and the preparation stages (the network and GPU edge).
 
 Everything between them, the Catalog rules, the Preparer scheduler, staging, and install, is the real code.
 """
@@ -15,7 +15,9 @@ from typing import Any, Literal
 from karaoke.core import ArtistId, ArtistRef, SongId, SongMeta
 from karaoke.harness.media import DURATION_S, Media, lyrics_doc
 from karaoke.songs.library import Library, SongRecord
+from karaoke.songs.lyric_sites import SiteAnswer, SiteDown, SiteLink, SiteNone, SiteText, SongQuery
 from karaoke.songs.prepare import FromV1Files, FromYouTube, PrepFailed, Source, Stages
+from karaoke.vocab import LyricsSite
 
 FailMode = Literal["once", "always", "crash"]
 EXPLODING_QUERY = "explode"
@@ -297,3 +299,24 @@ def seed_library(library: Library, media: Media) -> None:
             lyrics_source="transcribed" if transcribed else "lrclib",
             source_url=f"https://www.youtube.com/watch?v={meta.id}",
         ))
+
+
+class FakeLyricsSites:
+    """Lyrics sites with one fixed answer shape per site, so the phone's lyrics sheet shows every kind offline:
+    LRCLIB has text without a page, Genius has text with a page, KKBOX is a link, Uta-Net has nothing.
+    Any song whose title contains EXPLODING_QUERY makes every site 'down'."""
+
+    async def lookup(self, site: LyricsSite, q: SongQuery) -> SiteAnswer:
+        title = q.titles[0] if q.titles else ""
+        if EXPLODING_QUERY in title.lower():
+            return SiteDown()
+        match site:
+            case "lrclib":
+                return SiteText(f"{title} line one (lrclib)\n{title} line two (lrclib)\n\n{title} chorus (lrclib)", None)
+            case "genius":
+                return SiteText(f"[Verse 1]\n{title} line one (genius)\n{title} line two (genius)",
+                                f"https://genius.com/fake-{q.titles[0].replace(' ', '-')}-lyrics")
+            case "kkbox":
+                return SiteLink("https://www.kkbox.com/tw/tc/song/fakeSong", found=True)
+            case "utanet":
+                return SiteNone()

@@ -239,6 +239,23 @@ v2 designs out these failures:
 - The TV and the phone mark those lyrics as possibly wrong.
 - On the phone and the control page, the singer can tap the "Lyrics may be wrong" mark to learn why (added 2026-11-12). Assumption: a short panel explains that no published lyrics were found for the song, so the app wrote down the words it heard in the recording, and that it can mishear words, like automatic captions. The timing still follows the singing.
 
+## Read the lyrics from a lyrics site (added 2026-11-14)
+
+The user's words: allow users to show lyrics from a website directly on their devices if the lyrics are wrong or if the ordering is wrong. Allow multiple lyrics sites. For Chinese songs, get lyrics from KKBOX.
+
+- When the TV shows wrong words, or lines in the wrong order, a singer can read the song's lyrics from a lyrics website on their own phone.
+- The singer can switch between several lyrics sites.
+- For a Chinese song, the lyrics come from KKBOX. Assumption: KKBOX is the first site shown for a Chinese song, and the singer can still switch to the others.
+- Assumption: a "Lyrics" button on now playing opens the lyrics for the song now playing, on the phone and on the control page. It does not change the now playing layout's fit on one screen.
+- Assumption: the app shows the site's lyric text inside the app, as plain text the singer scrolls, with the site's name and a link to the original page. It does not open the site itself, because lyrics sites are full of ads and many refuse to show inside another page.
+- Assumption: Chinese lyrics show in Traditional script, as on the TV.
+- Assumption: the text does not follow the music. The singer scrolls by hand.
+- The sites are KKBOX, LRCLIB, Uta-Net, and Genius (decided 2026-11-14). Assumption: the app offers each site for every song, and the song's language only sets which site is shown first: KKBOX for Chinese, Uta-Net for Japanese, Genius for English, LRCLIB otherwise.
+- KKBOX shows an "Open lyrics on KKBOX" button instead of the text (decided 2026-11-14). KKBOX's bot protection stops the app from reading its song pages, but the phone's own browser opens them. The button opens the song's KKBOX page in the phone's browser. Assumption: when the app cannot find the song on KKBOX, the button opens KKBOX's search results for the song's title and singer instead.
+- 魔鏡歌詞網 (Mojim) is left out (decided 2026-11-14). On that day the site could not be reached: its name pointed at a private network address. It can be added if the site comes back.
+- If a site has no lyrics for the song, or is down, the app says so for that site and the other sites still work.
+- This feature is view only, on the singer's own device (decided 2026-11-14). The user's words: keep LRCLIB for the TV; this add-on should only be view-only lyrics on users' devices. The site's lyrics never change the TV's lyrics or the song's saved lyrics, and the TV's lyrics still come from LRCLIB.
+
 ## Open questions
 
-None. Decided 2026-11-12: favourites follow the browser, with the restore offer above. Region boxes use YouTube Music's charts and playlists. Two friends sharing one phone count as one singer.
+None. Decided 2026-11-12: favourites follow the browser, with the restore offer above. Region boxes use YouTube Music's charts and playlists. Two friends sharing one phone count as one singer. Decided 2026-11-14: the lyrics sites, and that site lyrics are view only on the singer's device while the TV keeps LRCLIB.

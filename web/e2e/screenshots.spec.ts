@@ -68,6 +68,12 @@ test("screenshots of the TV and phone pages", async ({ party }) => {
   await waitForTv(tv, (x) => !x.paused && x.audible > 1.5 && x.audible < 3.2, "lyrics on screen");
   await shot(tv, "tv-playing-1920");
   await shot(alice, "phone-now-playing");
+  await alice.getByTestId("lyrics-sites-open").click();
+  await expect(alice.getByTestId("lyrics-site-text")).toBeVisible();
+  await alice.waitForTimeout(400);
+  await shot(alice, "phone-lyrics-sites");
+  await alice.getByTestId("lyrics-sites-close").click();
+  await expect(alice.getByTestId("lyrics-sites")).toBeHidden();
   await alice.getByTestId("open-settings").click();
   await alice.waitForTimeout(400);
   await shot(alice, "phone-settings");
