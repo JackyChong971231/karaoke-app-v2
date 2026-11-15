@@ -57,6 +57,16 @@ The remote must look and feel like a finished product, not a DIY tool.
 - Turn the original vocal off or on with one switch beside the slider. Turning it on restores the level it had. Assumption: if it was never on, it turns on at full.
 - Change the key up or down in semitones.
 
+### Move around in the song (added 2026-11-15)
+
+- Sing the song again from the start, in the middle of the song. The user's words: add a button to allow resing in the middle of the song, this should not affect the queue. The song keeps its place as the song playing now: the queue, the singer's count for tonight, and the key stay as they are.
+- Jump 5 s forward with one tap. Each tap jumps 5 s more.
+- Drag the progress bar to any point in the song, like a normal video player. The video, the audio, and the lyrics all jump there.
+- Assumption: these work on filler songs too, and every phone and the control page sees the new position.
+- Assumption: a paused song stays paused after a jump or a restart, and plays from the new place when resumed.
+- Assumption: jumping forward past the end of the song stops 1 s before the end, so the song still ends normally.
+- Assumption: the restart button and the 5 s button sit in the row with the pause button, so now playing still fits on one screen. Restart sits left of pause and the 5 s button right of it.
+
 ### Now playing fits on one screen (added 2026-11-12)
 
 The user's words: make it easier to see and navigate, and fit everything on the now playing page into one screen. The singer should not need to scroll down to see the key change or the up next list.
@@ -82,6 +92,11 @@ The user saw the vocal setting differ between phones, and the app sometimes foll
 - The latest change wins, from whichever phone made it. Every other screen updates to it within a second.
 - A phone never sends a setting the singer did not just change. Ending a slider drag, a cancelled touch, or a reconnect must not resend an old value.
 - Two phones changing the key at the same moment end on one agreed key, shown everywhere.
+
+### Search button goes home (added 2026-11-15)
+
+- Pressing Search in the bottom navigation always opens the search home page: an empty search box with the browse boxes. It clears any typed search and leaves any singer, region, or "Ready to sing" page.
+- Assumption: this happens whether Search was already the open tab or another tab was.
 
 ### See the queue
 
@@ -291,7 +306,7 @@ The user left the design to the agent. The agent decided:
 
 - Preparation always makes both versions of the lyrics, the current one and the advanced one, whether the switch is on or off (decided 2026-11-14). The user's words: have 2 lyrics matching processed during the preparation so that it can be enabled or disabled while they are singing, and it can take effect immediately.
 - The switch can be flipped at any time, including in the middle of a song. It takes effect immediately: the TV changes to the other lyrics at the same place in the song, and the song keeps playing without a pause.
-- Advanced lyrics matching is off by default. Assumption: the switch applies to the whole app. It is on the control page and on the phone's now playing, and every screen shows its current state like the vocal and key settings. On the phone it sits beside the play button, so now playing still fits on one screen. For a song marked "Lyrics may be wrong", that mark shows there instead: the song has no advanced lyrics, so the switch would do nothing for it.
+- Advanced lyrics matching is on by default for all songs (changed 2026-11-15; it was off by default before). Songs with no advanced lyrics show their current lyrics, so the default changes nothing for them. Assumption: a singer can still turn it off, and the app remembers that choice across restarts like the vocal setting. Assumption: the switch applies to the whole app. It is on the control page and on the phone's now playing, and every screen shows its current state like the vocal and key settings. On the phone it sits beside the play button, so now playing still fits on one screen. For a song marked "Lyrics may be wrong", that mark shows there instead: the song has no advanced lyrics, so the switch would do nothing for it.
 - The current approach is never replaced. Every song keeps its current lyrics, and the advanced lyrics are saved beside them.
 - When the switch is on and a song has no advanced lyrics, the TV uses the current lyrics. This happens when advanced matching failed for that song, or the song has no LRCLIB lyrics.
 - Assumption: songs already in the library get advanced lyrics in the background, once, after any queued song that is still preparing. Until a song has them, the switch has no effect on that song.

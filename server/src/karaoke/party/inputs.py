@@ -85,6 +85,14 @@ class SetPaused:
 
 
 @dataclass(frozen=True, slots=True)
+class Seek:
+    by: SingerId
+    play: PlayId
+    to_s: float
+    """Seconds into the song. Restart sends 0. Clamped to 0 .. 1 s before the end."""
+
+
+@dataclass(frozen=True, slots=True)
 class Skip:
     by: SingerId
     play: PlayId
@@ -140,7 +148,7 @@ class ResolveRestart:
 
 PhoneCommand = (
     Hello | Rename | QueueSong | RemoveEntry | MoveEntry
-    | SetPaused | Skip | SetKey | StepKey | SetVocal | SetVocalOn | SetAvOffset | ResolveRestart | SetAdvancedLyrics
+    | SetPaused | Seek | Skip | SetKey | StepKey | SetVocal | SetVocalOn | SetAvOffset | ResolveRestart | SetAdvancedLyrics
 )
 
 # ---- TV reports ---------------------------------------------------------------------

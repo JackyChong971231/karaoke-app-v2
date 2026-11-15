@@ -102,6 +102,7 @@ def tv_view(rev: int, state: PartyState, resume_at: Mapping[int, float], join_ur
             play_id=now.play_id, song=song_view(now.song), singer_name=_singer_name(state, now),
             paused=now.paused, semitones=now.semitones, lyrics_flagged=now.song.id in flagged,
             resume_at_s=resume_at.get(now.play_id, 0.0),
+            seek=c.TvSeek(seq=now.seek.seq, to_s=now.seek.to_s) if now.seek is not None else None,
         ) if isinstance(now, Playing) else None,
         vocal_level=state.settings.vocal_level,
         av_offset_s=state.settings.av_offset_s,

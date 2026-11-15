@@ -15,7 +15,7 @@ from karaoke.core import ArtistId, ArtistRef, SingerId, SongId, SongMeta
 from karaoke.party import (
     Accepted, AwaitingRestartChoice, Before, DurableSnapshot, End, EntryId, Filler, FillerPicked, FromQueue, Front,
     Hello, Idle, Input, MoveEntry, PartyState, PlayId, Playing, QueueSong, Rejected, RemoveEntry, Rename,
-    ResolveRestart, Running, SavedEntry, SetAvOffset, SetKey, SetPaused, SetVocal, SetVocalOn, Settings, Skip,
+    ResolveRestart, Running, SavedEntry, Seek, SeekTo, SetAvOffset, SetKey, SetPaused, SetVocal, SetVocalOn, Settings, Skip,
     SongReady, StepKey, TrackEnded, TrackFailed, TvPresence, durable, filler_request, initial_state, preparation_demand, reduce,
 )
 
@@ -178,6 +178,29 @@ def test_playback_setters_are_absolute_and_validated() -> None:
     s = run(s, SetVocal(A, 0.4), SetAvOffset(A, 0.2))
     assert s.settings == Settings(vocal_level=0.4, vocal_restore=0.4, av_offset_s=0.2)
     assert reduce(party(), Skip(A, PlayId(1))).outcome == Rejected("nothing_playing")
+
+
+def test_seek_restarts_or_jumps_without_touching_the_queue_or_fairness() -> None:
+    """Spec "Move around in the song": restart, +5 s, and the progress bar keep the song, queue, key, and count."""
+    s = run(party(), SongReady(song("0").id), QueueSong(A, song("0")), QueueSong(B, song("q")))
+    p = playing(s).play_id
+    s = run(s, SetKey(A, p, 2), SetPaused(A, p, True))
+    before = s
+    s = run(s, Seek(B, p, 42.5), Seek(C, p, 0.0), Seek(C, p, 0.0))
+    assert playing(s).seek == SeekTo(3, 0.0), "each seek is new, even to the same place"
+    assert playing(s).play_id == p and playing(s).semitones == 2 and playing(s).paused
+    assert s.queue == before.queue and s.fairness == before.fairness and s.next_play_id == before.next_play_id
+    assert playing(run(s, Seek(A, p, 999.0))).seek == SeekTo(4, 199.0), "past the end lands 1 s before it"
+    assert playing(run(s, Seek(A, p, -3.0))).seek == SeekTo(4, 0.0)
+    assert reduce(s, Seek(A, p, float("nan"))).outcome == Rejected("invalid_value")
+    assert reduce(s, Seek(A, PlayId(p + 1), 1.0)).outcome == Rejected("stale_play")
+    assert reduce(party(), Seek(A, PlayId(1), 1.0)).outcome == Rejected("nothing_playing")
+    s = run(s, TrackEnded(p))
+    assert reduce(s, Seek(A, p, 1.0)).outcome == Rejected("nothing_playing"), "a late seek cannot move the next song"
+
+
+def test_advanced_lyrics_is_on_by_default() -> None:
+    assert initial_state(None).settings.advanced_lyrics
 
 
 def test_key_resets_and_vocal_level_persists_across_songs() -> None:

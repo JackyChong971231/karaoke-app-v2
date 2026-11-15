@@ -6,20 +6,21 @@ Reading this file and fairness.py is enough to know every rule of the party.
 
 from __future__ import annotations
 
+import math
 from dataclasses import replace
 from typing import assert_never
 
 from karaoke.core import SongMeta
 from karaoke.party import fairness
 from karaoke.party.inputs import (
-    Before, End, FillerPicked, Front, Hello, Input, MoveEntry, QueueSong, RemoveEntry, Rename, ResolveRestart,
+    Before, End, FillerPicked, Front, Hello, Input, MoveEntry, QueueSong, RemoveEntry, Rename, ResolveRestart, Seek,
     SetAdvancedLyrics, SetAvOffset, SetKey, SetPaused, SetVocal, SetVocalOn, Skip, SongReady, StepKey, TrackEnded, TrackFailed,
     TvPresence,
 )
 from karaoke.party.model import (
-    AV_OFFSET_MAX_S, FILLER_MEMORY, KEY_MAX, KEY_MIN, NAME_MAX, Accepted, AwaitingRestartChoice, DurableSnapshot,
-    EntryId, Fairness, Filler, FromQueue, Idle, PartyState, PlayId, Playing, QueueEntry, Rejected, Running, Settings,
-    Step,
+    AV_OFFSET_MAX_S, FILLER_MEMORY, KEY_MAX, KEY_MIN, NAME_MAX, SEEK_END_GAP_S, Accepted, AwaitingRestartChoice, DurableSnapshot,
+    EntryId, Fairness, Filler, FromQueue, Idle, PartyState, PlayId, Playing, QueueEntry, Rejected, Running, SeekTo,
+    Settings, Step,
 )
 from karaoke.vocab import RejectReason
 
@@ -116,6 +117,16 @@ def reduce(state: PartyState, inp: Input) -> Step:
             if moved == state.now.semitones:
                 return Step(state, Accepted())
             return _ok(replace(state, now=replace(state.now, semitones=moved)))
+
+        case Seek(_, play, to_s):
+            if (bad := _check_play(state, play)) is not None:
+                return _reject(state, bad)
+            if not math.isfinite(to_s):
+                return _reject(state, "invalid_value")
+            assert isinstance(state.now, Playing)
+            last = max(0.0, state.now.song.duration_s - SEEK_END_GAP_S)
+            seek = SeekTo((state.now.seek.seq if state.now.seek else 0) + 1, min(last, max(0.0, to_s)))
+            return _ok(replace(state, now=replace(state.now, seek=seek)))
 
         case Skip(_, play) | TrackEnded(play) | TrackFailed(play, _):
             if (bad := _check_play(state, play)) is not None:

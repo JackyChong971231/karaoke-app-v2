@@ -95,6 +95,8 @@ export interface PhoneStore {
   ): Promise<Outcome | null>;
   /** Interpolated now-playing position: last clock sample plus elapsed time if not paused. */
   progressS(): number | null;
+  /** Restart (0), +5 s, and the progress bar. The bar shows `toS` at once, before the TV reports it. */
+  seek(toS: number): void;
   toast(message: string, tone?: Toast["tone"]): void;
   rename(name: string): Promise<boolean>;
   /** Heart a song, or un-heart it when `songId` is already a favourite. */
@@ -103,6 +105,13 @@ export interface PhoneStore {
   refreshFavourites(): Promise<void>;
   readonly pick: PickController;
 }
+
+/** A clock report this close to the seek target means the TV has jumped. */
+const SEEK_LANDED_S = 1.5;
+/** Stop showing the target if the TV never reports it (TV offline, seek rejected). */
+const SEEK_HOLD_MS = 2000;
+/** Matches the server's clamp, so the bar shows where the TV will land. */
+const SEEK_END_GAP_S = 1;
 
 export function createPhoneStore(initial: Identity): PhoneStore {
   let identity = initial;
@@ -119,6 +128,9 @@ export function createPhoneStore(initial: Identity): PhoneStore {
     reorder: null,
   };
   let nextToast = 1;
+  // The latest seek this phone sent, shown until the TV's clock lands near it. Without it the bar jumps back for
+  // a moment, and a quick second +5 s tap would add 5 s to the old position instead of the first jump.
+  let seekHold: { playId: number; toS: number; atMs: number } | null = null;
 
   const set = (patch: Partial<PhoneState>): void => {
     state = { ...state, ...patch };
@@ -168,8 +180,21 @@ export function createPhoneStore(initial: Identity): PhoneStore {
       const now = state.view?.now;
       const clock = socket.clock();
       if (!now || clock === null || clock.playId !== now.playId) return null;
-      const elapsed = clock.paused || now.paused ? 0 : (performance.now() - clock.receivedAtMs) / 1000;
-      return Math.min(now.song.durationS, clock.positionS + elapsed);
+      const t = performance.now();
+      if (seekHold !== null) {
+        const landed = clock.receivedAtMs > seekHold.atMs && Math.abs(clock.positionS - seekHold.toS) < SEEK_LANDED_S;
+        if (seekHold.playId !== now.playId || landed || t - seekHold.atMs > SEEK_HOLD_MS) seekHold = null;
+      }
+      const from = seekHold ?? { toS: clock.positionS, atMs: clock.receivedAtMs };
+      const elapsed = clock.paused || now.paused ? 0 : (t - from.atMs) / 1000;
+      return Math.min(now.song.durationS, from.toS + elapsed);
+    },
+    seek(toS) {
+      const now = state.view?.now;
+      if (!now) return;
+      const target = Math.max(0, Math.min(toS, now.song.durationS - SEEK_END_GAP_S));
+      seekHold = { playId: now.playId, toS: target, atMs: performance.now() };
+      void run(`seek:${String(seekHold.atMs)}`, { kind: "seek", playId: now.playId, toS: target });
     },
     toast,
     async rename(name) {

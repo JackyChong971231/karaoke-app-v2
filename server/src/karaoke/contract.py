@@ -142,6 +142,11 @@ class PhoneView(Wire):
     device: Literal["cuda", "cpu"]
 
 
+class TvSeek(Wire):
+    seq: int
+    to_s: float
+
+
 class TvPlay(Wire):
     play_id: int
     song: SongView
@@ -151,6 +156,8 @@ class TvPlay(Wire):
     lyrics_flagged: bool
     resume_at_s: float
     """0 for a fresh play. After a TV reload, the last position the TV reported for this play_id."""
+    seek: TvSeek | None
+    """The latest seek in this play. The TV jumps when seq is new to it; on load it counts this one as applied."""
 
 
 class UpNext(Wire):
@@ -219,6 +226,14 @@ class SetPausedCmd(Wire):
     paused: bool
 
 
+class SeekCmd(Wire):
+    """Restart (0), +5 s, and the progress bar. A target, not a step."""
+
+    kind: Literal["seek"]
+    play_id: int
+    to_s: float
+
+
 class SkipCmd(Wire):
     kind: Literal["skip"]
     play_id: int
@@ -281,7 +296,7 @@ class SetAdvancedLyricsCmd(Wire):
 
 
 PhoneCommand = Annotated[
-    QueueLibraryCmd | QueuePickCmd | QueueFavouriteCmd | RemoveCmd | MoveCmd | SetPausedCmd | SkipCmd | SetKeyCmd | StepKeyCmd
+    QueueLibraryCmd | QueuePickCmd | QueueFavouriteCmd | RemoveCmd | MoveCmd | SetPausedCmd | SeekCmd | SkipCmd | SetKeyCmd | StepKeyCmd
     | SetVocalCmd | SetVocalOnCmd | SetAvOffsetCmd | RenameCmd | ResolveRestartCmd | SetAdvancedLyricsCmd,
     Field(discriminator="kind"),
 ]

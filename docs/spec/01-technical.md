@@ -242,7 +242,7 @@ These implement the product spec's "Advanced lyrics matching". The current "Prep
 
 - New module `songs/prepare/_advanced_lyrics.py`. It is the only code that knows about anchors, breaks, and line matching. It reads the song's LRCLIB text and vocal track, and writes `lyrics.advanced.json`.
 - `lyrics.json` is still written by the current steps for every song. The advanced file sits beside it in the song folder and is optional. A song is complete without it.
-- `Settings` gains `advanced_lyrics: bool`, default `false`. The server owns it and syncs it like the vocal and key settings.
+- `Settings` gains `advanced_lyrics: bool`, default `false` (changed to `true` on 2026-11-15). The server owns it and syncs it like the vocal and key settings.
 - The TV loads both files when a song starts. It draws from `lyrics.advanced.json` when the setting is on and the file exists, and from `lyrics.json` otherwise.
 - A change to the setting mid-song swaps which file the renderer draws from on the next frame. Both files use the audio position as their clock, so playback is not touched. Assumption: the swap clears both lyric slots and redraws them for the current position, with no fade.
 - The phone's now playing and the control page show the switch. It sends the new value like the vocal switch, and the server broadcasts it to every screen.
@@ -358,6 +358,16 @@ Over all 75 library songs, the first version fixed the first line of 5 songs and
 - Hand-marked times for the user's own problem videos can be added once the user names them (open question in the product spec).
 - Unit tests feed made-up transcripts to steps 3 to 11: intro speech, an unheard first line after a talking intro, a repeated chorus with a skipped verse, mid-song dialogue, a crowd-sung line, unsung lines with no voice, too few anchors, Chinese in mixed scripts, and each failure found on 如果的事 (an unheard opening verse, the wrong chorus copy, an invented repeat, a shared opening, a stitched match, too many lines left out).
 - A browser test switches the setting mid-song on the fake world and checks that the TV swaps lyrics at the same position and counts down the intro.
+
+## Changes for 2026-11-15: move around in the song
+
+- One phone command, `seek {playId, toS}`, does all three: restart sends 0, the 5 s button sends the shown position plus 5, and the progress bar sends where the finger lifts. It is a target, not a step, so a TV that sees only the latest of several quick seeks still lands in the right place.
+- The party keeps the latest seek on `Playing` as `(seq, to_s)`. `seq` increases with every seek, so seeking twice to the same place still jumps twice. A seek never changes the queue, fairness, or `play_id`. The reducer clamps `to_s` to between 0 and 1 s before the song's end.
+- The TV applies a seek whose `seq` it has not applied yet for this play. It moves the stretch node's input time, holds the target in its clock (see "Play a song on the TV"), and the video and lyrics follow the audio as usual. A TV that loads or reloads mid-song counts the seek it finds as already applied and starts from `resume_at_s`.
+- The phone shows the target position at once, before the TV's next clock report, so the bar does not jump back and a second quick tap on the 5 s button adds 5 s to the first. The target is dropped when a clock report lands near it, or after 2 s.
+- The progress bar is a range input. While the finger is on it, the bar follows the finger and shows the time under it. Lifting sends one seek.
+- Search: pressing the Search tab remounts the search panel, which clears the query and the page stack.
+- `Settings.advanced_lyrics` now defaults to `true`. A saved `party.json` keeps its saved value.
 
 ## Verification
 

@@ -203,6 +203,16 @@ export class AudioEngine {
     this.clock.notePlaying(!paused);
   }
 
+  /** Jump within the loaded song, playing or paused. The clock holds the target until the node reports it. */
+  seek(toS: number): void {
+    const track = this.track;
+    if (track === null) return;
+    const target = Math.max(0, Math.min(toS, track.durationS));
+    this.inputEndSeenAt = null;
+    this.clock.noteSeek(target, track.node.inputTime);
+    this.at({ input: target });
+  }
+
   setPaused(paused: boolean): void {
     if (this.track === null || paused === this.paused) return;
     this.paused = paused;

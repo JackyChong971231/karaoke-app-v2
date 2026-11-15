@@ -9,6 +9,7 @@ import { Art, Icon, LyricsFlag, Marquee, ReadinessChip, Spinner } from "./ui";
 
 const KEY_MIN = -6;
 const KEY_MAX = 6;
+const FORWARD_S = 5;
 
 export function NowPlaying(props: { onFindSong: () => void }): JSX.Element {
   const { view } = usePhone();
@@ -79,30 +80,77 @@ function NowSkeleton(): JSX.Element {
   );
 }
 
+/** A drag with no movement for this long ends, so a touch the browser never finished cannot freeze the bar. */
+const SEEK_DRAG_IDLE_MS = 1500;
+
+// The progress bar works like a video player's: drag or tap it to jump there. While the finger is on it, the bar
+// follows the finger and the time shows the place under it. Lifting sends one seek (the native "change" event).
+// The bar is drawn every frame from the clock, outside React, so it never re-renders the page.
 function Progress(props: { now: NowView }): JSX.Element {
   const store = useStore();
-  const bar = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLInputElement>(null);
   const elapsed = useRef<HTMLSpanElement>(null);
+  const drag = useRef<number | null>(null);
+  const idle = useRef<number | undefined>(undefined);
   const duration = props.now.song.durationS;
   useEffect(() => {
     let frame = 0;
     const draw = (): void => {
-      const p = store.progressS();
-      const ratio = p === null || duration <= 0 ? 0 : Math.min(1, p / duration);
-      if (bar.current) bar.current.style.transform = `scaleX(${String(ratio)})`;
+      const p = drag.current ?? store.progressS();
+      const el = input.current;
+      if (el) {
+        if (drag.current === null) el.value = String(p ?? 0);
+        const ratio = p === null || duration <= 0 ? 0 : Math.min(1, p / duration);
+        el.style.setProperty("--fill", `${String(ratio * 100)}%`);
+      }
       if (elapsed.current) elapsed.current.textContent = p === null ? "--:--" : formatTime(p);
       frame = requestAnimationFrame(draw);
     };
     frame = requestAnimationFrame(draw);
     return () => { cancelAnimationFrame(frame); };
   }, [store, duration]);
+  useEffect(() => {
+    const el = input.current;
+    if (el === null) return;
+    const release = (): void => {
+      window.clearTimeout(idle.current);
+      const to = drag.current ?? Number(el.value);
+      drag.current = null;
+      store.seek(to);
+    };
+    el.addEventListener("change", release);
+    return () => {
+      el.removeEventListener("change", release);
+      window.clearTimeout(idle.current);
+    };
+  }, [store]);
+  const endDrag = (): void => {
+    window.clearTimeout(idle.current);
+    drag.current = null;
+  };
   return (
     <div className="progress">
-      <div className="progress-track">
-        <div className="progress-fill" ref={bar} />
-      </div>
+      <input
+        ref={input}
+        type="range"
+        className="seekbar"
+        data-testid="seekbar"
+        min={0}
+        max={duration}
+        step="any"
+        defaultValue={0}
+        aria-label="Song position"
+        onChange={(e) => {
+          drag.current = Number(e.currentTarget.value);
+          window.clearTimeout(idle.current);
+          idle.current = window.setTimeout(endDrag, SEEK_DRAG_IDLE_MS);
+        }}
+        onPointerCancel={endDrag}
+        onTouchCancel={endDrag}
+        onBlur={endDrag}
+      />
       <div className="progress-times">
-        <span ref={elapsed}>--:--</span>
+        <span ref={elapsed} data-testid="elapsed">--:--</span>
         <span>{formatTime(duration)}</span>
       </div>
     </div>
@@ -124,6 +172,15 @@ function Transport(props: { now: NowView; advancedLyrics: boolean }): JSX.Elemen
           <AdvancedLyricsSwitch on={props.advancedLyrics} />
         )}
       </div>
+      <div className="transport-center">
+      <button
+        className="round round-sm round-ghost"
+        data-testid="restart"
+        aria-label="Sing again from the start"
+        onClick={() => { store.seek(0); }}
+      >
+        <Icon name="restart" size={22} />
+      </button>
       <button
         className="round round-xl"
         data-testid="pause"
@@ -133,6 +190,16 @@ function Transport(props: { now: NowView; advancedLyrics: boolean }): JSX.Elemen
       >
         {pausing ? <Spinner size={28} /> : <Icon name={now.paused ? "play" : "pause"} size={34} />}
       </button>
+      <button
+        className="round round-sm round-ghost round-forward"
+        data-testid="forward"
+        aria-label="Forward 5 seconds"
+        onClick={() => { store.seek((store.progressS() ?? 0) + FORWARD_S); }}
+      >
+        <Icon name="forward" size={22} />
+        <span className="round-forward-num">5</span>
+      </button>
+      </div>
       <div className="transport-side">
         <button
           className="round round-sm round-ghost"

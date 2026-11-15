@@ -232,6 +232,13 @@ test("vocal slider and key change reach the TV", async ({ party }) => {
 
 test("lyrics probe shows the current line and the fill progressing", async ({ party }) => {
   const tv = await party.tv();
+  await waitForTv(tv, (x) => x.stage.kind === "playing", "filler started");
+  // Advanced lyrics are on by default; this test is about the current lyrics, from the top of the song.
+  const phone = await party.phone("Alice");
+  await phone.getByTestId("advanced-lyrics-toggle").click();
+  await waitForTv(tv, (x) => x.version === 1, "current lyrics");
+  await phone.getByTestId("restart").click();
+  await waitForTv(tv, (x) => x.audible < 1, "back at the start");
   const early = await waitForTv(
     tv,
     (x) => x.stage.kind === "playing" && x.audible > 1.2 && x.audible < 2.6,
@@ -265,32 +272,74 @@ test("the advanced lyrics switch swaps the TV's lyrics mid-song and counts down 
     (x) => x.playId === (filler.playId ?? 0) + 1 && x.stage.kind === "playing" && x.audible > 0.6,
     "Morning Sun playing",
   );
-  // Paused inside the advanced intro, so the check cannot race the song.
+  // Paused inside the advanced intro, so the check cannot race the song. Advanced lyrics are on by default.
   await phone.getByTestId("pause").click();
-  const current = await waitForTv(tv, (x) => x.paused && x.audible < 2.5, "paused early in the song");
-  expect(current.version).toBe(1);
-  expect(current.slots[0]?.text).toBe("Sing along with the fake world");
+  const intro = await waitForTv(tv, (x) => x.paused && x.audible < 2.5, "paused early in the song");
   const toggle = phone.getByTestId("advanced-lyrics-toggle");
-  await expect(toggle).toHaveAttribute("aria-checked", "false");
-
-  await toggle.click();
   await expect(toggle).toHaveAttribute("aria-checked", "true");
-  const intro = await waitForTv(tv, (x) => x.version === 2, "advanced lyrics on the TV");
-  expect(intro.playId).toBe(current.playId);
-  expect(Math.abs(intro.audible - current.audible)).toBeLessThan(0.1);
+  expect(intro.version).toBe(2);
   expect(intro.breakText).toMatch(/^♪ Intro · [4-6]$/);
   expect(intro.slots.map((s) => s.text)).toEqual(["", ""]);
   await expect(tv.locator("#lyricsBreak")).toBeVisible();
 
-  await phone.getByTestId("pause").click();
-  const sung = await waitForTv(tv, (x) => x.audible > 3.2 && x.audible < 5.5, "past the intro countdown");
-  expect(sung.breakText).toBe("");
-  expect(sung.slots[0]?.text).toBe("Advanced lyrics start late");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  const current = await waitForTv(tv, (x) => x.version === 1, "current lyrics on the TV");
+  expect(current.playId).toBe(intro.playId);
+  expect(Math.abs(current.audible - intro.audible)).toBeLessThan(0.1);
+  expect(current.slots[0]?.text).toBe("Sing along with the fake world");
 
   await toggle.click();
-  const back = await waitForTv(tv, (x) => x.version === 1, "current lyrics again");
-  expect(back.playId).toBe(current.playId);
-  expect(back.slots.map((s) => s.text)).not.toContain("Advanced lyrics start late");
+  await waitForTv(tv, (x) => x.version === 2, "advanced lyrics again");
+  await phone.getByTestId("pause").click();
+  const sung = await waitForTv(tv, (x) => x.audible > 3.2 && x.audible < 5.5, "past the intro countdown");
+  expect(sung.playId).toBe(intro.playId);
+  expect(sung.breakText).toBe("");
+  expect(sung.slots[0]?.text).toBe("Advanced lyrics start late");
+});
+
+test("restart, +5 s, and the progress bar move the song without touching the queue", async ({ party }) => {
+  const tv = await party.tv();
+  const filler = await waitForTv(tv, (x) => x.stage.kind === "playing", "filler started");
+  const phone = await party.phone("Alice");
+  await phone.getByTestId("pause").click();
+  const paused = await waitForTv(tv, (x) => x.paused && x.audible < 4, "paused early");
+
+  await phone.getByTestId("forward").click();
+  const ahead = await waitForTv(tv, (x) => x.audible > paused.audible + 4.5, "jumped 5 s forward");
+  expect(ahead.audible).toBeLessThan(paused.audible + 5.5);
+  expect(ahead.paused).toBe(true);
+  await expect(phone.getByTestId("elapsed")).toHaveText(/^0:0[5-9]$/);
+
+  await phone.getByTestId("restart").click();
+  const again = await waitForTv(tv, (x) => x.audible < 0.3, "back at the start");
+  expect(again.playId).toBe(filler.playId);
+  expect(again.paused).toBe(true);
+  await expect(phone.getByTestId("elapsed")).toHaveText("0:00");
+
+  await phone.getByTestId("seekbar").fill("7");
+  const dragged = await waitForTv(tv, (x) => Math.abs(x.audible - 7) < 0.3, "at 7 s from the progress bar");
+  expect(dragged.playId).toBe(filler.playId);
+  expect(Math.abs(dragged.videoTime - dragged.display)).toBeLessThan(0.5);
+
+  await phone.getByTestId("pause").click();
+  const playing = await waitForTv(tv, (x) => !x.paused && x.audible > 7.3, "plays on from 7 s");
+  expect(playing.playId).toBe(filler.playId);
+  await expect(phone.getByTestId("now-playing")).toContainText("Sing-along filler");
+});
+
+test("the Search tab always opens the search home", async ({ party }) => {
+  const phone = await party.phone("Alice");
+  await phone.getByTestId("tab-search").click();
+  await phone.getByTestId("search-input").fill("Morning");
+  await expect(phone.getByTestId("search-input")).toHaveValue("Morning");
+  await phone.getByTestId("tab-search").click();
+  await expect(phone.getByTestId("search-input")).toHaveValue("");
+
+  await phone.getByTestId("search-input").fill("Morning");
+  await phone.getByTestId("tab-queue").click();
+  await phone.getByTestId("tab-search").click();
+  await expect(phone.getByTestId("search-input")).toHaveValue("");
 });
 
 test("TV reload resumes the same play at its position", async ({ party }) => {

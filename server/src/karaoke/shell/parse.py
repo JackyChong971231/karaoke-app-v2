@@ -15,7 +15,7 @@ from typing import assert_never
 from karaoke import contract as c
 from karaoke.core import SingerId, SongId, SongMeta
 from karaoke.party import (
-    Before, End, EntryId, Front, Input, MoveEntry, PlayId, Position, QueueSong, RemoveEntry, Rename, ResolveRestart,
+    Before, End, EntryId, Front, Input, MoveEntry, PlayId, Position, QueueSong, RemoveEntry, Rename, ResolveRestart, Seek,
     SetAdvancedLyrics, SetAvOffset, SetKey, SetPaused, SetVocal, SetVocalOn, Skip, StepKey, TrackEnded, TrackFailed,
 )
 from karaoke.songs.catalog import Catalog, PickId
@@ -52,6 +52,8 @@ def phone_input(cmd: c.PhoneCommand, by: SingerId, library: Library, catalog: Ca
             return MoveEntry(by, EntryId(entry_id), _position(to))
         case c.SetPausedCmd(play_id=play_id, paused=paused):
             return SetPaused(by, PlayId(play_id), paused)
+        case c.SeekCmd(play_id=play_id, to_s=to_s):
+            return Seek(by, PlayId(play_id), to_s)
         case c.SkipCmd(play_id=play_id):
             return Skip(by, PlayId(play_id))
         case c.SetKeyCmd(play_id=play_id, semitones=semitones):

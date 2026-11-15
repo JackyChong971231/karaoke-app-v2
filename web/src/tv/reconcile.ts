@@ -30,6 +30,8 @@ interface Loaded {
   abort: AbortController;
   ready: boolean;
   endedSent: boolean;
+  /** The last seek seq applied in this play. A seek already in the view at load is counted as applied. */
+  seekSeq: number;
   lyrics: { current: LyricsDoc; advanced: LyricsDoc | null } | null;
 }
 
@@ -50,12 +52,22 @@ export class TvReconciler {
     const play = view.play;
     if (play?.playId !== this.loaded?.playId) this.switchTo(play);
     if (play !== null && this.loaded?.ready === true) {
+      this.applySeek(play);
       engine.setPaused(play.paused);
       engine.setKey(play.semitones);
     }
     engine.setVocal(view.vocalLevel);
     this.avOffsetS = view.avOffsetS;
     this.pickLyrics();
+  }
+
+  /** Restart, +5 s, and the progress bar. The video and lyrics follow the audio clock on the next frame. */
+  private applySeek(play: TvPlay): void {
+    const loaded = this.loaded;
+    if (loaded === null || play.seek === null || play.seek.seq === loaded.seekSeq) return;
+    loaded.seekSeq = play.seek.seq;
+    loaded.endedSent = false;
+    this.deps.engine.seek(play.seek.toS);
   }
 
   /** The advanced lyrics switch takes effect on the next frame, mid-song too: both docs are already loaded. */
@@ -75,6 +87,10 @@ export class TvReconciler {
     lyrics.render(display);
     if (engine.isPaused()) {
       if (!video.paused) video.pause();
+      // A seek while paused shows the new picture at once.
+      if (video.readyState >= HTMLMediaElement.HAVE_METADATA && Math.abs(video.currentTime - display) > VIDEO_DRIFT_S) {
+        video.currentTime = Math.min(display, Number.isFinite(video.duration) ? video.duration : display);
+      }
     } else {
       if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
         const target = Math.min(display, Number.isFinite(video.duration) ? video.duration : display);
@@ -118,6 +134,7 @@ export class TvReconciler {
       abort: new AbortController(),
       ready: false,
       endedSent: false,
+      seekSeq: play.seek?.seq ?? 0,
       lyrics: null,
     };
     this.loaded = loaded;
@@ -144,6 +161,8 @@ export class TvReconciler {
       engine.start(play.resumeAtS, now.paused, now.semitones);
       video.currentTime = play.resumeAtS + this.avOffsetS;
       loaded.ready = true;
+      // A seek made while the song was loading lands now instead of waiting for the next snapshot.
+      this.applySeek(now);
       this.deps.onStage({ kind: "playing", playId: play.playId });
     } catch (e) {
       if (signal.aborted) return;

@@ -76,6 +76,12 @@ function Shell(props: { desk: boolean }): JSX.Element {
   const { view, link, toasts } = usePhone();
   const [tab, setTab] = useState<Tab>("now");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Pressing Search always opens the search home: a new key remounts the panel, clearing the box and any page.
+  const [searchHome, setSearchHome] = useState(0);
+  const selectTab = useCallback((t: Tab) => {
+    if (t === "search") setSearchHome((n) => n + 1);
+    setTab(t);
+  }, []);
   const goSearch = useCallback(() => {
     if (desk) document.querySelector<HTMLInputElement>('[data-testid="search-input"]')?.focus();
     else setTab("search");
@@ -99,15 +105,15 @@ function Shell(props: { desk: boolean }): JSX.Element {
           <Queue onFindSong={goSearch} />
         </section>
         <section className={`screen ${shows("search") ? "is-active" : ""}`} aria-hidden={!shows("search")}>
-          <PhoneSearch desk={desk} />
+          <PhoneSearch key={searchHome} desk={desk} />
         </section>
       </main>
       {!desk && tab !== "now" && view?.now != null && <MiniPlayer now={view.now} onOpen={() => { setTab("now"); }} />}
       {!desk && (
         <nav className="tabbar" aria-label="Sections">
-          <TabButton tab="now" current={tab} onSelect={setTab} icon="mic" label="Now playing" />
-          <TabButton tab="queue" current={tab} onSelect={setTab} icon="queue" label="Queue" badge={queueCount} />
-          <TabButton tab="search" current={tab} onSelect={setTab} icon="search" label="Search" />
+          <TabButton tab="now" current={tab} onSelect={selectTab} icon="mic" label="Now playing" />
+          <TabButton tab="queue" current={tab} onSelect={selectTab} icon="queue" label="Queue" badge={queueCount} />
+          <TabButton tab="search" current={tab} onSelect={selectTab} icon="search" label="Search" />
         </nav>
       )}
       {/* The mini player shows on every tab but Now playing; there, toasts sit lower so they never cover the key. */}

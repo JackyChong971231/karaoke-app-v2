@@ -30,6 +30,8 @@ KEY_MIN, KEY_MAX = -6, 6
 AV_OFFSET_MAX_S = 1.0
 NAME_MAX = 32
 FILLER_MEMORY = 20
+SEEK_END_GAP_S = 1.0
+"""A seek past the end lands this far before it, so the song still ends normally."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +71,15 @@ class Filler:
 
 
 @dataclass(frozen=True, slots=True)
+class SeekTo:
+    """The latest jump within the playing song (restart, +5 s, the progress bar). A target, not a step."""
+
+    seq: int
+    """Increases with every seek in this play, so seeking twice to the same place jumps twice."""
+    to_s: float
+
+
+@dataclass(frozen=True, slots=True)
 class Playing:
     play_id: PlayId
     song: SongMeta
@@ -76,6 +87,8 @@ class Playing:
     paused: bool = False
     semitones: int = 0
     """Per play. Resets to 0 for the next song."""
+    seek: SeekTo | None = None
+    """None until someone seeks. The TV applies each new seq once. Never touches the queue or fairness."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,7 +135,7 @@ class Settings:
     so every phone restores the same level."""
     av_offset_s: float = 0.0
     """TV display lag. Video and lyrics are drawn this much earlier than the audible position."""
-    advanced_lyrics: bool = False
+    advanced_lyrics: bool = True
     """The advanced lyrics matching switch. Every song has both lyrics; this picks which the TV draws."""
 
 
