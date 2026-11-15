@@ -291,6 +291,33 @@ The current lyrics are evidence, not a competitor. Advanced matching keeps their
 
 A file `lyrics.advanced.tried` in the song folder holds the matching version that last finished, whether it wrote lyrics or not. A crash writes no marker. The version is 3; raising it re-matches every library song.
 
+### Revision: fix only the long intro (2026-11-14)
+
+This implements the product spec's "Fix only the long intro". Steps 1 to 4 and 7 to 10 above still run, but only for the opening. The version becomes 5. When this version leaves a song alone, it deletes any `lyrics.advanced.json` an earlier version wrote, so the switch never shows the earlier version's lyrics.
+
+1. **Strong anchors only.** A match counts as a strong anchor when it is in the chain from step 4, covers at least 80% of its line's units, and its offset from LRCLIB's time is within 2 s of the median offset of its two nearest chain neighbours on each side. Songs without LRCLIB line times get no strong anchors. Assumption: 80% and 2 s.
+2. **Fall back.** No advanced file is written when fewer than 20% of the lines have a strong anchor: Whisper barely heard the song. The intro rule in steps 4 and 5 carries the confidence. 40% was tried first: it blocked the clear intro of 一場誤會, where Whisper hears Cantonese poorly elsewhere in the song. Assumption: 20%.
+3. **Compare each strong anchor with the current lyrics.** It *agrees* when the current start of its line is within 2 s of where Whisper heard it, is *early* when the current start is more than 2 s before, and *late* when more than 2 s after.
+4. **Find the agreement point:** the first strong anchor that agrees and whose next strong anchor also agrees. Without one, no advanced file is written.
+5. **Fix only an intro.** Every strong anchor before the agreement point must be early, and there must be at least 2 of them. Otherwise no advanced file is written.
+6. **Re-time the opening.** The lines before the agreement point are aligned again with `stable-ts`, as the current approach does, but against only one clip of the vocal track: from where the singing starts to the agreement point's current start. The singing starts 1 s before where Whisper heard the first early line begin, or earlier when LRCLIB's time for the first line, shifted by the early lines' offset, says so. So no line can be left out, and none can land in the intro. Steps 7 and 8 apply. The first try re-timed the opening line by line, as in step 6 above, and gave up on About Damn Time and Out of Time because Whisper had not heard every opening line.
+7. **Copy the rest.** From the agreement point on, the lines are copied exactly from `lyrics.json`.
+8. **Breaks:** only the intro. The re-timed opening gets the finishing steps (step 10).
+
+Check before committing: run every library song with LRCLIB lyrics. Every advanced file has the same lyric text as its current lyrics, in the same order, and every line from the agreement point on is identical to the current lyrics. Report which songs got a fix, and check each one's first line against LRCLIB's time. The long-intro songs found by the first version (About Damn Time, Not Like Us, 突然好想你, Out of Time, Can You Feel The Love Tonight, 一場誤會) should be among them.
+
+Measured on all 72 library songs with LRCLIB lyrics (2026-11-15). 67 songs get no advanced lyrics. 5 are fixed, all with the same lyric text as the current lyrics and every line after the opening unchanged:
+
+| Song | First line: current, fixed, LRCLIB | Within 1 s: current, fixed |
+| --- | --- | --- |
+| 突然好想你 | 2.0 s, 35.4 s, 35.4 s | 67%, 80% |
+| About Damn Time | 13.2 s, 57.3 s, 46.8 s | 79%, 95% |
+| Can You Feel The Love Tonight | 7.0 s, 17.0 s, 17.2 s | 40%, 47% |
+| Out of Time | 5.2 s, 18.4 s, 18.3 s | 63%, 83% |
+| 一場誤會 | 13.6 s, 21.1 s, 21.3 s | 82%, 97% |
+
+Not fixed on purpose: Not Like Us and Sexy, because Whisper confidently heard none of their opening lines, and 好心好報, where it confidently heard too little of the song (18%). About Damn Time's fixed first line is 10 s after LRCLIB's time; the user checks it by ear. Advanced matching took a median of 13 s per song when it had the graphics card to itself.
+
 ### Measured results (2026-11-14)
 
 On 10 library songs chosen for being hard: the 6 the first version broke, the 3 it fixed, and the live recording. "Within 1 s" is the share of lines within 1 s of LRCLIB's times after one constant offset. That is a reference, not ground truth. "Silent" is seconds of lit words over a silent vocal track.
@@ -341,3 +368,4 @@ Over all 75 library songs, the first version fixed the first line of 5 songs and
 ## Open questions
 
 - **Advanced lyrics matching (2026-11-14):** the thresholds were tuned on 10 library songs ("Measured results (2026-11-14)"), not on the user's own problem videos. Whisper `small` is kept: it took a median of 13 s per song, and the passages it misses are now placed from LRCLIB's times and the current lyrics instead. Backing ad-libs in parentheses that Whisper does not hear can be left out; whether that is acceptable is for the user to judge in use.
+- **Fix only the long intro (2026-11-14):** A Whole New World's current lyrics stop at 2:15, and the first advanced version covered the rest of the song. The intro-only fix gives that up, along with live shows' repeated choruses and mid-song drama scenes. If those matter later, they are a separate decision.

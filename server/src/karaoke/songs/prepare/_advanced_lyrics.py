@@ -1,13 +1,16 @@
-"""Advanced lyrics matching. Private. Technical spec "Changes for 2026-11-14: advanced lyrics matching".
+"""Advanced lyrics matching. Private. Technical spec "Changes for 2026-11-14: advanced lyrics matching" and
+"Revision: fix only the long intro".
 
 The current lyrics (_lyrics.build) force-align the whole LRCLIB text against the whole vocal track, so every
-word must land somewhere, in LRCLIB's order, even during an intro, a drama scene, or a talk to the crowd. This
-module first listens (Whisper transcription), keeps only the places where what it heard matches a lyric line
-(anchors), and then places every line between its anchors. It writes lyrics.advanced.json beside lyrics.json and
-never changes it, so the whole module can be switched off or deleted.
+word must land somewhere, even during a long intro: the first lines light up early, stall, and catch up. This
+module listens (Whisper transcription) and fixes only that. When Whisper confidently heard the opening lines sung
+later than the current lyrics show them, and then confidently agrees with the current lyrics, the opening is
+aligned again from where the singing starts and the rest is copied from lyrics.json unchanged. Every other song
+gets no advanced lyrics. It writes lyrics.advanced.json beside lyrics.json and never changes it, so the whole
+module can be switched off or deleted.
 
-Pure planning (`plan`) and assembling (`assemble`) are separate from the accelerator calls (`build_advanced`),
-so every rule is unit-testable with made-up transcripts.
+The decision (`intro_fix`) and assembling (`assemble`) are separate from the accelerator calls
+(`build_advanced`), so every rule is unit-testable with made-up transcripts.
 """
 
 from __future__ import annotations
@@ -17,7 +20,7 @@ import os
 import re
 import statistics
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from difflib import Match as Block
 from difflib import SequenceMatcher
 from functools import lru_cache
@@ -36,14 +39,10 @@ from karaoke.songs.prepare._lyrics import (
 
 log = logging.getLogger(__name__)
 
-ADVANCED_VERSION = 3
+ADVANCED_VERSION = 5
 """Bumped when the matching changes enough that library songs should be matched again."""
 BREAK_MIN_S = 8.0
 CLIP_MARGIN_S = 0.3
-ANCHOR_SLACK_S = 1.0
-"""How far beyond a line's anchored words its clip may reach, for words the transcript missed."""
-MIN_ANCHORED = 0.3
-"""Below this share of lines anchored, matching failed and the song keeps only lyrics.json."""
 CHAR_UNITS = ("zh", "ja", "ko")
 """Languages matched per character. Korean too: Whisper's word spacing in Hangul often differs from LRCLIB's."""
 MIN_COVER = 0.6
@@ -55,22 +54,20 @@ BACKWARD_PENALTY = 3.0
 OFFSET_WEIGHT = 0.5
 """Chain cost per second that the offset from LRCLIB's times changes between neighbouring matches."""
 OFFSET_CAP_S = 15.0
-AGREE_S = 3.0
-"""The current lyrics' time for an unheard line is trusted when it is this close to LRCLIB's time."""
-AGREE_HEARD_S = 1.5
-"""The current lyrics' time for a heard line is kept when it starts this close to where Whisper heard it."""
-MIN_VOICED_SHARE = 0.3
-"""An unheard line is placed only where at least this share of its time has voice."""
-VOICE_SHARE = 0.6
-"""Roughly the share of a line's LRCLIB time that is voice; the rest is breath and instrumental."""
 VOICE_GAP_S = 1.0
 """Voiced frames closer than this form one voiced stretch."""
-WALK_GAP_S = 4.0
-"""Plain lyrics: unheard lines lead into, or follow, their anchor through voice no further apart than this."""
 SQUEEZE = 2.5
 """A line sung this many times faster than the song's typical rate was misplaced by the aligner."""
-MAX_DROPPED = 0.15
-"""Leaving out more lines than this, with no break to explain it, means matching went wrong."""
+STRONG_COVER = 0.8
+"""A strong anchor covers this share of its line's units (technical spec "Revision: fix only the long intro")."""
+STRONG_OFFSET_S = 2.0
+"""A strong anchor's offset from LRCLIB's time is this close to its neighbours'."""
+MIN_STRONG = 0.2
+"""Below this share of lines strongly anchored, Whisper heard too little to be trusted. The intro rule
+itself (2 early, then 2 agreeing strong anchors) carries the confidence; this only rejects songs Whisper
+barely heard."""
+CONTRADICT_S = 2.0
+"""The current lyrics agree with a strong anchor when they start its line this close to where it was heard."""
 DEFAULT_RATE_S = 0.3
 
 
@@ -299,10 +296,11 @@ def typical_rate(matches: Sequence[Match]) -> float:
 
 # ---- the current lyrics, as evidence ----
 
-def current_lines(lines: Sequence[Line], doc: LyricsDoc | None, lang: str) -> list[LyricsLine | None]:
-    """The current lyrics' timing for each lyric line, or None where its text does not line up. fit_lines may
-    have split a line in two, so pieces are joined back. Used only between anchors, where it is reliable."""
-    out: list[LyricsLine | None] = []
+def _current_spans(lines: Sequence[Line], doc: LyricsDoc | None,
+                   lang: str) -> list[tuple[LyricsLine | None, int | None]]:
+    """The current lyrics' timing for each lyric line, and the index in doc.lines where it starts; (None, None)
+    where its text does not line up. fit_lines may have split a line in two, so pieces are joined back."""
+    out: list[tuple[LyricsLine | None, int | None]] = []
     docs = doc.lines if doc else []
     j = 0
     for line in lines:
@@ -315,19 +313,96 @@ def current_lines(lines: Sequence[Line], doc: LyricsDoc | None, lang: str) -> li
                 words.append(w)
             k += 1
         if got == line.units and len(words) == len(line.tokens):
-            out.append(LyricsLine(words=[w.model_copy(update={"gap_before": g})
-                                         for w, (_, g) in zip(words, line.tokens)], estimated=True))
+            out.append((LyricsLine(words=[w.model_copy(update={"gap_before": g})
+                                          for w, (_, g) in zip(words, line.tokens)], estimated=True), j))
             j = k
         else:
-            out.append(None)
+            out.append((None, None))
     return out
+
+
+# ---- the intro fix ----
+
+@dataclass(frozen=True, slots=True)
+class IntroFix:
+    """The opening lines (before `cut`) re-timed by `plan`; doc.lines from `doc_from` on are copied unchanged."""
+
+    plan: Plan
+    cut: int
+    doc_from: int
+
+
+def strong_anchors(chain: Sequence[Match], lines: Sequence[Line]) -> list[Match]:
+    """Matches Whisper is confident about (revision step 1): most of the line heard, and the offset from
+    LRCLIB's time in line with the neighbouring matches."""
+    offs = [offset(m, lines) for m in chain]
+    out = []
+    for i, m in enumerate(chain):
+        o = offs[i]
+        near = [x for x in offs[max(0, i - 2):i] + offs[i + 1:i + 3] if x is not None]
+        if (o is None or not near or m.score < STRONG_COVER * len(lines[m.line].units)
+                or abs(o - statistics.median(near)) > STRONG_OFFSET_S):
+            continue
+        out.append(m)
+    return out
+
+
+def intro_fix(lines: list[Line], heard: Sequence[Heard], lang: str, doc: LyricsDoc) -> IntroFix | None:
+    """Revision steps 1 to 6: None unless Whisper confidently shows that the current lyrics start the song too
+    early. Every other song keeps exactly its current lyrics."""
+    chain = best_chain(find_matches(lines, heard, anchor_len(lang)), lines)
+    strong = strong_anchors(chain, lines)
+    if not lines or len({m.line for m in strong}) < MIN_STRONG * len(lines):
+        log.info("advanced lyrics: %d of %d lines strongly anchored, below %.0f%%",
+                 len({m.line for m in strong}), len(lines), MIN_STRONG * 100)
+        return None
+    spans = _current_spans(lines, doc, lang)
+    rate = typical_rate(chain)
+
+    def verdict(m: Match) -> str | None:
+        cur = spans[m.line][0]
+        if cur is None:
+            return None
+        d = cur.words[0].start - (m.start - m.first * rate)
+        return "agree" if abs(d) <= CONTRADICT_S else "early" if d < 0 else "late"
+
+    verdicts = [verdict(m) for m in strong]
+    at = next((k for k in range(len(strong) - 1) if verdicts[k] == verdicts[k + 1] == "agree"), None)
+    if at is None:
+        log.info("advanced lyrics: Whisper never agrees with the current lyrics twice in a row")
+        return None
+    before = verdicts[:at]
+    if len(before) < 2 or any(v != "early" for v in before):
+        log.info("advanced lyrics: no long intro to fix (%s before the agreement point)", before)
+        return None
+    cut = strong[at].line
+    cur_cut, doc_from = spans[cut]
+    if cur_cut is None or doc_from is None:
+        return None
+    until = cur_cut.words[0].start - CLIP_MARGIN_S
+    start = _singing_starts(lines, strong[:at], rate)
+    if until - start < 1.0:
+        return None
+    return IntroFix(Plan(lines[:cut], [Group(list(range(cut)), start, until, [False] * cut)], rate, until), cut, doc_from)
+
+
+def _singing_starts(lines: Sequence[Line], early: Sequence[Match], rate: float) -> float:
+    """Where the opening's clip starts: where Whisper heard the first early line begin, or, for opening lines
+    before it, LRCLIB's time shifted by the early anchors' offset. Never later than that first heard line."""
+    first = early[0]
+    heard_at = first.start - first.first * rate
+    offs = [o for o in (offset(m, lines) for m in early) if o is not None]
+    lrc0 = lines[0].lrc
+    at = heard_at if first.line == 0 or lrc0 is None or not offs else min(heard_at, lrc0 + statistics.median(offs))
+    return max(0.0, at - 1.0)
 
 
 # ---- the plan ----
 
 @dataclass(slots=True)
 class Group:
-    """Lines aligned together against one clip of the vocal track, or one line kept as the current lyrics timed it."""
+    """Lines aligned together against one clip of the vocal track, or one line kept as the current lyrics timed it.
+    The intro fix makes a single clip: the opening lines, from where the singing starts."""
 
     lines: list[int]
     start: float
@@ -342,215 +417,11 @@ class Plan:
     groups: list[Group]
     rate: float
     duration: float
-    voiced: list[tuple[float, float]] = field(default_factory=list)
-    anchored: int = 0
 
     @property
     def clips(self) -> list[Group]:
         """The groups sent to the aligner, in order."""
         return [g for g in self.groups if g.fixed is None]
-
-
-@dataclass(frozen=True, slots=True)
-class _Gap:
-    """Unanchored lines between two chain neighbours, and what is known around them."""
-
-    ids: list[int]
-    lo: float
-    hi: float
-    side: str
-    """'before' the first anchor, 'after' the last, or 'between'."""
-    prev: Match | None
-    nxt: Match | None
-
-
-def expected_s(lines: Sequence[Line], ids: Sequence[int], rate: float) -> float:
-    """How long these lines take: LRCLIB's own line times when it has them, else the song's typical rate."""
-    total = 0.0
-    for i in ids:
-        here, nxt = lines[i].lrc, lines[i + 1].lrc if i + 1 < len(lines) else None
-        if here is not None and nxt is not None and nxt > here:
-            total += min(12.0, max(0.5, nxt - here))
-        else:
-            total += len(lines[i].units) * rate * 1.15
-    return total
-
-
-def _walk(voiced: Sequence[tuple[float, float]], lo: float, hi: float, need: float,
-          backward: bool) -> tuple[float, float, float]:
-    """Collect voiced stretches inside [lo, hi] from one end, while they stay close together, until they hold
-    `need` seconds of voice. Returns (window start, window end, voice collected)."""
-    segs = _clip_to(voiced, lo, hi)
-    if backward:
-        segs = segs[::-1]
-    got, edge, span = 0.0, hi if backward else lo, None
-    for a, b in segs:
-        near = edge - b if backward else a - edge
-        if near > WALK_GAP_S:
-            break
-        span = (a if span is None else min(span[0], a), b if span is None else max(span[1], b))
-        got += b - a
-        edge = a if backward else b
-        if got >= need:
-            break
-    if span is None:
-        return lo, hi, 0.0
-    return (span[0], hi, got) if backward else (lo, span[1], got)
-
-
-def _walk_window(voiced: Sequence[tuple[float, float]], gap: _Gap, need: float) -> tuple[float, float] | None:
-    """Plain lyrics: where unheard lines are sung, judged by voice alone, or None when there is not enough voice
-    for them. `need` is the lines' time; about VOICE_SHARE of it is voice."""
-    lo, hi = gap.lo, gap.hi
-    if hi - lo < 0.5:
-        return None
-    need *= VOICE_SHARE
-    if sum(b - a for a, b in _clip_to(voiced, lo, hi)) < 0.5 * need:
-        return None
-    if gap.side == "between" and hi - lo <= 2 * need + 4:
-        segs = _clip_to(voiced, lo, hi)
-        return max(lo, segs[0][0] - CLIP_MARGIN_S), min(hi, segs[-1][1] + CLIP_MARGIN_S)
-    walks = []
-    if gap.side in ("before", "between"):
-        walks.append(_walk(voiced, lo, hi, need, backward=True))
-    if gap.side in ("after", "between"):
-        walks.append(_walk(voiced, lo, hi, need, backward=False))
-    a, b, got = max(walks, key=lambda w: min(w[2], need))
-    if got < 0.5 * need:
-        return None
-    return max(lo, a - CLIP_MARGIN_S), min(hi, b + CLIP_MARGIN_S)
-
-
-def _current_ok(p: Plan, cur: LyricsLine | None, gap: _Gap) -> bool:
-    if cur is None or not cur.words:
-        return False
-    a, b = cur.words[0].start, cur.words[-1].end
-    return gap.lo - 0.5 <= a and b <= gap.hi + 0.5 and b > a and voiced_share(p.voiced, a, b) >= MIN_VOICED_SHARE
-
-
-def _predicted(lines: Sequence[Line], i: int, gap: _Gap) -> float | None:
-    """LRCLIB's time for line i in this video: its album time plus the neighbouring anchors' offset,
-    interpolated between them by LRCLIB time."""
-    lrc = lines[i].lrc
-    if lrc is None:
-        return None
-    o_prev = offset(gap.prev, lines) if gap.prev else None
-    o_next = offset(gap.nxt, lines) if gap.nxt else None
-    if o_prev is None:
-        return None if o_next is None else lrc + o_next
-    if o_next is None:
-        return lrc + o_prev
-    assert gap.prev is not None and gap.nxt is not None
-    la, lb = lines[gap.prev.line].lrc, lines[gap.nxt.line].lrc
-    frac = 0.5 if la is None or lb is None or lb <= la else min(1.0, max(0.0, (lrc - la) / (lb - la)))
-    return lrc + o_prev + (o_next - o_prev) * frac
-
-
-def _place_gap(p: Plan, gap: _Gap, current: Sequence[LyricsLine | None]) -> list[Group]:
-    """Unheard lines, in order of trust:
-    1. The current lyrics' time, when it sits on voice between the neighbouring anchors and agrees with LRCLIB's
-       time. Measured: trusting it between anchors without LRCLIB's agreement broke 突然好想你, whose current
-       lyrics drift mid-song too. For plain lyrics, it is trusted only between two anchors.
-    2. LRCLIB's time, shifted by the neighbouring anchors' offsets, when the vocal track has voice there.
-    3. For plain lyrics, the voice right next to the anchor.
-    Otherwise the line is left out: it was not sung, as for a verse a live show skipped."""
-    lines = p.lines
-    if all(lines[i].lrc is None for i in gap.ids):
-        if gap.side == "between" and all(_current_ok(p, current[i], gap) for i in gap.ids):
-            return [_kept(current[i], i) for i in gap.ids]
-        win = _walk_window(p.voiced, gap, expected_s(lines, gap.ids, p.rate))
-        return [] if win is None else [Group(gap.ids, win[0], win[1], [True] * len(gap.ids))]
-    out: list[Group] = []
-    for i in gap.ids:
-        pred = _predicted(lines, i, gap)
-        cur = current[i]
-        if pred is None:
-            continue
-        if cur is not None and _current_ok(p, cur, gap) and abs(cur.words[0].start - pred) <= AGREE_S:
-            out.append(_kept(cur, i))
-            continue
-        s, e = max(gap.lo, pred - 1.0), min(gap.hi, pred + expected_s(lines, [i], p.rate) + 1.0)
-        if e - s > 0.5 and voiced_share(p.voiced, s, e) >= MIN_VOICED_SHARE:
-            out.append(Group([i], s, e, [True]))
-    return out
-
-
-def _kept(cur: LyricsLine | None, i: int) -> Group:
-    assert cur is not None
-    return Group([i], cur.words[0].start, cur.words[-1].end, [True], fixed=cur)
-
-
-def plan(lines: list[Line], heard: Sequence[Heard], loud: Sequence[float], lang: str,
-         current: Sequence[LyricsLine | None] | None = None) -> Plan | None:
-    """Steps 3 to 7 of the technical spec: anchors, the chain of sung lines, and where every line goes.
-    `current` is the current lyrics' timing per line (current_lines), evidence for lines Whisper did not hear."""
-    duration = len(loud) * LOUDNESS_FRAME_S
-    chain = best_chain(find_matches(lines, heard, anchor_len(lang)), lines)
-    anchored = len({m.line for m in chain})
-    if not lines or anchored < MIN_ANCHORED * len(lines):
-        log.info("advanced lyrics: %d of %d lines anchored, below %.0f%%", anchored, len(lines), MIN_ANCHORED * 100)
-        return None
-    p = Plan(lines, [], typical_rate(chain), duration, voiced_stretches(loud), anchored)
-    cur = list(current) if current is not None else [None] * len(lines)
-    groups: list[Group] = []
-    for k in range(len(chain) + 1):
-        prev = chain[k - 1] if k > 0 else None
-        nxt = chain[k] if k < len(chain) else None
-        a = prev.line if prev else -1
-        b = nxt.line if nxt else len(lines)
-        if b > a + 1:
-            side = "before" if prev is None else "after" if nxt is None else "between"
-            gap = _Gap(list(range(a + 1, b)), max(0.0, prev.end + CLIP_MARGIN_S) if prev else 0.0,
-                       min(duration, nxt.start - CLIP_MARGIN_S) if nxt else duration, side, prev, nxt)
-            groups += _place_gap(p, gap, cur)
-        if nxt is not None:
-            kept = cur[nxt.line]
-            if kept is not None and _agrees_with_heard(p, kept, nxt, prev, chain[k + 1] if k + 1 < len(chain) else None):
-                groups.append(Group([nxt.line], kept.words[0].start, kept.words[-1].end, [False],
-                                    fixed=LyricsLine(words=kept.words)))
-                continue
-            n = len(lines[nxt.line].units)
-            s0 = nxt.start - nxt.first * p.rate - ANCHOR_SLACK_S
-            s1 = nxt.end + (n - 1 - nxt.last) * p.rate + ANCHOR_SLACK_S
-            floor = prev.end if prev else 0.0
-            ceil = chain[k + 1].start if k + 1 < len(chain) else duration
-            groups.append(Group([nxt.line], max(floor, s0, 0.0), min(ceil, s1, duration), [False]))
-    p.groups = _merge(groups)
-    return p
-
-
-def _agrees_with_heard(p: Plan, cur: LyricsLine, m: Match, prev: Match | None, nxt: Match | None) -> bool:
-    """The current lyrics already time this heard line right: it starts near where Whisper heard it and stays
-    between its neighbours. Its word times are finer than the transcript's, so they are kept."""
-    heard_start = m.start - m.first * p.rate
-    a, b = cur.words[0].start, cur.words[-1].end
-    return (abs(a - heard_start) <= AGREE_HEARD_S and b >= m.end - AGREE_HEARD_S
-            and (prev is None or a >= prev.end - 0.5) and (nxt is None or b <= nxt.start + 0.5))
-
-
-def _merge(groups: list[Group]) -> list[Group]:
-    """Neighbouring clips that touch are aligned as one, which gives the aligner more context. Clips separated
-    by a gap stay apart, so no line can spill across it. Lines kept from the current lyrics never merge."""
-    out: list[Group] = []
-    for g in groups:
-        last = out[-1] if out else None
-        if last is not None and last.fixed is None and g.fixed is None and g.start <= last.end + 0.05:
-            out[-1] = Group(last.lines + g.lines, min(last.start, g.start), max(last.end, g.end),
-                            last.estimated + g.estimated)
-        else:
-            out.append(g)
-    return out
-
-
-def acceptable(p: Plan, gaps: Sequence[LyricsBreak]) -> bool:
-    """Safety net: many lines left out with no break to explain them means matching went wrong. The song then
-    keeps only its current lyrics, which is better than a worse advanced version."""
-    dropped = len(p.lines) - len({i for g in p.groups for i in g.lines})
-    if dropped <= max(2, MAX_DROPPED * len(p.lines)) or any(b.kind == "break" for b in gaps):
-        return True
-    log.info("advanced lyrics: %d of %d lines left out with no break, keeping only the current lyrics",
-             dropped, len(p.lines))
-    return False
 
 
 # ---- assembling the result ----
@@ -654,8 +525,11 @@ def needs_matching(folder: Path) -> bool:
 
 async def build_advanced(found: FoundLyrics, vocals_wav: Path, accel: Accelerator,
                          progress: Callable[[float], None], current: LyricsDoc | None = None) -> LyricsDoc | None:
-    """None when matching fails: the song then plays its current lyrics with the switch on. `current` is the
-    song's lyrics.json, evidence for lines Whisper did not hear."""
+    """The current lyrics with only a long intro fixed (technical spec "Revision: fix only the long intro").
+    None for every song that does not need that fix, or when Whisper cannot be trusted: the song then plays its
+    current lyrics with the switch on."""
+    if current is None:
+        return None
     lang = detect_language(found.text)
     lines = lyric_lines(found, lang)
     if not lines:
@@ -663,15 +537,24 @@ async def build_advanced(found: FoundLyrics, vocals_wav: Path, accel: Accelerato
     tr = await accel.run(Transcribe(vocals_wav, lang), lambda p: progress(0.6 * p))
     progress(0.6)
     loud = await accel.run(Loudness(vocals_wav), lambda p: None)
-    p = plan(lines, heard_units(tr, lang), loud, lang, current_lines(lines, current, lang))
-    if p is None:
+    fix = intro_fix(lines, heard_units(tr, lang), lang, current)
+    if fix is None:
         return None
-    clips = tuple(Clip(g.start, g.end, align_text([lines[i].tokens for i in g.lines])) for g in p.clips)
-    results = await accel.run(AlignClips(vocals_wav, lang, clips), lambda x: progress(0.6 + 0.4 * x))
-    timed, gaps = assemble(p, results)
-    if not acceptable(p, gaps):
+    return await _apply(fix, vocals_wav, lang, accel, current, len(loud) * LOUDNESS_FRAME_S,
+                        lambda x: progress(0.6 + 0.4 * x))
+
+
+async def _apply(fix: IntroFix, vocals_wav: Path, lang: str, accel: Accelerator, current: LyricsDoc,
+                 duration: float, progress: Callable[[float], None]) -> LyricsDoc | None:
+    p = fix.plan
+    clips = tuple(Clip(g.start, g.end, align_text([p.lines[i].tokens for i in g.lines])) for g in p.clips)
+    results = await accel.run(AlignClips(vocals_wav, lang, clips), progress)
+    opening, _ = assemble(p, results)
+    if len(opening) != fix.cut:
         return None
-    log.info("advanced lyrics: %d of %d lines anchored, %d clips, %d lines shown, breaks %s", p.anchored,
-             len(lines), len(clips), len(timed), [(round(b.start), round(b.end), b.kind) for b in gaps])
-    return LyricsDoc(version=2, source="lrclib", language=lang,
-                     lines=fit_lines(widen_first_words(timed), LINE_WIDTH_BUDGET_EM), breaks=gaps)
+    rest = current.lines[fix.doc_from:]
+    lines = fit_lines(widen_first_words(opening), LINE_WIDTH_BUDGET_EM) + rest
+    intro = [b for b in breaks(lines, duration) if b.kind == "intro"]
+    log.info("advanced lyrics: re-timed the first %d lines, first line %.1fs -> %.1fs", fix.cut,
+             current.lines[0].words[0].start, lines[0].words[0].start)
+    return current.model_copy(update={"version": 2, "lines": lines, "breaks": intro})

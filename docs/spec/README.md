@@ -4,8 +4,8 @@ This folder is the source of truth for what v2 does and how it is built. No appl
 
 | File | Covers | Status |
 | --- | --- | --- |
-| [00-product.md](00-product.md) | Who uses the app, what they can do, and what good looks like | Approved 2026-11-11. Amendments approved 2026-11-12. Lyrics-site amendment approved 2026-11-14. Advanced lyrics matching amendment approved 2026-11-14. |
-| [01-technical.md](01-technical.md) | Stack, architecture, data model, and external integrations | Approved 2026-11-11. Changes approved 2026-11-12. Advanced lyrics matching changes approved 2026-11-14. |
+| [00-product.md](00-product.md) | Who uses the app, what they can do, and what good looks like | Approved 2026-11-11. Amendments approved 2026-11-12. Lyrics-site amendment approved 2026-11-14. Advanced lyrics matching amendment approved 2026-11-14. "Fix only the long intro" approved 2026-11-14 (design left to the agent). |
+| [01-technical.md](01-technical.md) | Stack, architecture, data model, and external integrations | Approved 2026-11-11. Changes approved 2026-11-12. Advanced lyrics matching changes approved 2026-11-14. "Revision: fix only the long intro" approved 2026-11-14 (design left to the agent). |
 
 ## How a requirement becomes spec
 

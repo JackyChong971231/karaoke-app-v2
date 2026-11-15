@@ -272,6 +272,21 @@ The lyrics start lighting up during the intro, stop on one word, and catch up wh
 - Where the app is unsure, for example a chorus the crowd sings while the artist is silent, the TV shows its best guess and lights the words as usual (decided 2026-11-14). Assumption: the TV does not mark these lines as guessed.
 - The words still come from LRCLIB. Songs with no LRCLIB lyrics keep today's transcribed lyrics and their "Lyrics may be wrong" mark. Assumption: they get no advanced version.
 
+### Fix only the long intro (decided 2026-11-14, after the full library run)
+
+The user's words: the original approach is already very good, about 95% of the songs' lyrics are a match. Whisper's accuracy is not that high for songs, so don't trust its result that much. Use it only as a reference to anchor some parts of the lyrics. Mark the original approach as the default, and only adjust the lyrics if Whisper is confidently saying the line is off. Build the cautious version: I don't want to ruin the 9 in 10 songs, I want it to fix just that 1 song, and strictly not affect the other 9. That one song is always due to a long wait at the intro.
+
+The user left the design to the agent. The agent decided:
+
+- Advanced lyrics fix only the opening of a song, where the current lyrics start before the singing does.
+- From the first place where Whisper confidently agrees with the current lyrics, to the end of the song, the advanced lyrics are an exact copy of the current lyrics.
+- The opening is re-timed only when Whisper confidently heard at least 2 opening lines, each sung more than 2 s later than the current lyrics show them, and none sung earlier.
+- A song that does not need this fix gets no advanced lyrics at all, so the switch changes nothing on it. That is the guarantee for the other 9 songs.
+- When Whisper heard too little of the song to be trusted, the song gets no advanced lyrics either.
+- Advanced lyrics have the same lines as the current lyrics, in the same order. They never add, repeat, or leave out a line.
+- On a fixed song, the TV shows "♪ Intro" with a countdown until the first line. There is no countdown for breaks later in the song, because the rest of the song is the current lyrics.
+- This replaces the broader behaviour above: live performances, drama scenes, and breaks mid-song keep the current lyrics. The earlier bullets under "What advanced lyrics matching does" describe the first version and no longer apply beyond the intro.
+
 ### Switch it on and off
 
 - Preparation always makes both versions of the lyrics, the current one and the advanced one, whether the switch is on or off (decided 2026-11-14). The user's words: have 2 lyrics matching processed during the preparation so that it can be enabled or disabled while they are singing, and it can take effect immediately.

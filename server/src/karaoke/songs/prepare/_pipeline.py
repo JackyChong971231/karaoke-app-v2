@@ -243,6 +243,9 @@ class RealStages(Stages):
             return
         if doc is not None:
             write_doc(into / ADVANCED_LYRICS, doc)
+        else:
+            # A song this version leaves alone must not keep an older version's file.
+            (into / ADVANCED_LYRICS).unlink(missing_ok=True)
         _advanced_lyrics.mark_tried(into)
         log.info("%s: advanced lyrics matching took %.1fs (%s)", song, time.monotonic() - t,
                  "written" if doc else "not matched")
