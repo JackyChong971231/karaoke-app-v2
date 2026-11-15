@@ -12,6 +12,8 @@ export interface TvDeps {
   video: HTMLVideoElement;
   send(cmd: TvCommand): void;
   fetchLyrics(songId: string, signal: AbortSignal): Promise<LyricsDoc>;
+  /** lyrics.advanced.json, or null when the song has none (matching failed, or no LRCLIB lyrics). */
+  fetchAdvancedLyrics(songId: string, signal: AbortSignal): Promise<LyricsDoc | null>;
   onStage(stage: Stage): void;
 }
 
@@ -28,6 +30,7 @@ interface Loaded {
   abort: AbortController;
   ready: boolean;
   endedSent: boolean;
+  lyrics: { current: LyricsDoc; advanced: LyricsDoc | null } | null;
 }
 
 const VIDEO_DRIFT_S = 0.15;
@@ -52,6 +55,15 @@ export class TvReconciler {
     }
     engine.setVocal(view.vocalLevel);
     this.avOffsetS = view.avOffsetS;
+    this.pickLyrics();
+  }
+
+  /** The advanced lyrics switch takes effect on the next frame, mid-song too: both docs are already loaded. */
+  private pickLyrics(): void {
+    const docs = this.loaded?.lyrics;
+    if (docs === null || docs === undefined) return;
+    const advanced = this.latest?.advancedLyrics === true ? docs.advanced : null;
+    this.deps.lyrics.setDoc(advanced ?? docs.current);
   }
 
   /** Every animation frame. */
@@ -101,22 +113,31 @@ export class TvReconciler {
       this.deps.onStage({ kind: "idle" });
       return;
     }
-    const loaded: Loaded = { playId: play.playId, abort: new AbortController(), ready: false, endedSent: false };
+    const loaded: Loaded = {
+      playId: play.playId,
+      abort: new AbortController(),
+      ready: false,
+      endedSent: false,
+      lyrics: null,
+    };
     this.loaded = loaded;
     this.deps.onStage({ kind: "loading", playId: play.playId });
     void this.load(loaded, play);
   }
 
   private async load(loaded: Loaded, play: TvPlay): Promise<void> {
-    const { engine, lyrics, video } = this.deps;
+    const { engine, video } = this.deps;
     const { signal } = loaded.abort;
     try {
-      const [, doc] = await Promise.all([
+      const [, current, advanced] = await Promise.all([
         engine.load(play.playId, play.song.songId, signal),
         this.deps.fetchLyrics(play.song.songId, signal),
+        // Never fails the song: without advanced lyrics, the switch has no effect on it.
+        this.deps.fetchAdvancedLyrics(play.song.songId, signal).catch(() => null),
       ]);
       signal.throwIfAborted();
-      lyrics.setDoc(doc);
+      loaded.lyrics = { current, advanced };
+      this.pickLyrics();
       video.src = mediaUrl(play.song.songId, "video.mp4");
       // The view may have moved on (pause, key) while loading, so start from the latest snapshot, not `play`.
       const now = this.latest?.play?.playId === play.playId ? this.latest.play : play;

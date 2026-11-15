@@ -77,7 +77,7 @@ type = "forbidden"
 source_modules = ["karaoke.shell", "karaoke.importer", "karaoke.songs.catalog", "karaoke.songs.library"]
 forbidden_modules = [
   "karaoke.songs.prepare._pipeline", "karaoke.songs.prepare._download",
-  "karaoke.songs.prepare._accelerator", "karaoke.songs.prepare._lyrics",
+  "karaoke.songs.prepare._accelerator", "karaoke.songs.prepare._lyrics", "karaoke.songs.prepare._advanced_lyrics",
 ]
 allow_indirect_imports = true
 
@@ -91,5 +91,5 @@ forbidden_modules = ["torch", "demucs", "stable_whisper"]
 strict = true
 
 [[tool.mypy.overrides]]
-module = ["opencc", "soundfile", "stable_whisper"]
+module = ["opencc", "soundfile", "stable_whisper", "stable_whisper.*"]
 ignore_missing_imports = true

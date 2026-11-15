@@ -252,6 +252,47 @@ test("lyrics probe shows the current line and the fill progressing", async ({ pa
   expect(Math.abs(cjk.videoTime - cjk.display)).toBeLessThan(0.5);
 });
 
+test("the advanced lyrics switch swaps the TV's lyrics mid-song and counts down the intro", async ({ party }) => {
+  const tv = await party.tv();
+  const filler = await waitForTv(tv, (x) => x.stage.kind === "playing", "filler started");
+  const phone = await party.phone("Alice");
+  await queueLibrary(phone, "Morning Sun");
+  await phone.getByTestId("tab-now").click();
+  await phone.getByTestId("skip").click();
+  await expect(phone.getByTestId("now-playing")).toContainText("Alice");
+  await waitForTv(
+    tv,
+    (x) => x.playId === (filler.playId ?? 0) + 1 && x.stage.kind === "playing" && x.audible > 0.6,
+    "Morning Sun playing",
+  );
+  // Paused inside the advanced intro, so the check cannot race the song.
+  await phone.getByTestId("pause").click();
+  const current = await waitForTv(tv, (x) => x.paused && x.audible < 2.5, "paused early in the song");
+  expect(current.version).toBe(1);
+  expect(current.slots[0]?.text).toBe("Sing along with the fake world");
+  const toggle = phone.getByTestId("advanced-lyrics-toggle");
+  await expect(toggle).toHaveAttribute("aria-checked", "false");
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-checked", "true");
+  const intro = await waitForTv(tv, (x) => x.version === 2, "advanced lyrics on the TV");
+  expect(intro.playId).toBe(current.playId);
+  expect(Math.abs(intro.audible - current.audible)).toBeLessThan(0.1);
+  expect(intro.breakText).toMatch(/^♪ Intro · [4-6]$/);
+  expect(intro.slots.map((s) => s.text)).toEqual(["", ""]);
+  await expect(tv.locator("#lyricsBreak")).toBeVisible();
+
+  await phone.getByTestId("pause").click();
+  const sung = await waitForTv(tv, (x) => x.audible > 3.2 && x.audible < 5.5, "past the intro countdown");
+  expect(sung.breakText).toBe("");
+  expect(sung.slots[0]?.text).toBe("Advanced lyrics start late");
+
+  await toggle.click();
+  const back = await waitForTv(tv, (x) => x.version === 1, "current lyrics again");
+  expect(back.playId).toBe(current.playId);
+  expect(back.slots.map((s) => s.text)).not.toContain("Advanced lyrics start late");
+});
+
 test("TV reload resumes the same play at its position", async ({ party }) => {
   const tv = await party.tv();
   await waitForTv(tv, (x) => x.stage.kind === "playing" && x.audible > 2.5, "filler past 2.5 s");

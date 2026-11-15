@@ -37,7 +37,10 @@ from opencc import OpenCC
 from karaoke.core import ArtistId, ArtistRef, SongId, SongMeta
 from karaoke.vocab import LyricsSource, MediaFile
 
-SONG_FILES: tuple[MediaFile, ...] = get_args(MediaFile)
+OPTIONAL_FILES: tuple[MediaFile, ...] = ("lyrics.advanced.json",)
+"""Advanced lyrics matching output. A song is complete without it; the background job may add it later."""
+SONG_FILES: tuple[MediaFile, ...] = tuple(f for f in get_args(MediaFile) if f not in OPTIONAL_FILES)
+ADVANCED_LYRICS: MediaFile = "lyrics.advanced.json"
 STAGING = ".staging"
 STALE_STAGING_S = 7 * 24 * 3600
 
@@ -237,7 +240,7 @@ class Library:
 
     def media_path(self, song: SongId, file: MediaFile) -> Path | None:
         """For the HTTP media route. None if not installed (never serves from .staging)."""
-        if file not in SONG_FILES or song.startswith(".") or "/" in song or "\\" in song:
+        if file not in get_args(MediaFile) or song.startswith(".") or "/" in song or "\\" in song:
             return None
         p = self.root / song / file
         return p if p.is_file() else None

@@ -7,7 +7,9 @@ Staging layout (<library>/.staging/<video id>/):
     instrumental.opus   160 kbit/s                                  } step "separating"
     vocals.opus                                                     }
     vocals.wav          kept for alignment, deleted before install  }
-    lyrics.json         LyricsDoc                                   } step "aligning"
+    lyrics.advanced.json  LyricsDoc v2, advanced lyrics matching (optional) } step "aligning"
+    lyrics.advanced.tried the matching version that last ran              }
+    lyrics.json         LyricsDoc, written last                     }
 
 Crash-safety rules:
 1. Every output is written as <name>.part then os.replace'd to <name>. A visible <name> is complete.
@@ -25,6 +27,7 @@ import logging
 import os
 import shutil
 import sys
+import tempfile
 import time
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
@@ -32,12 +35,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from karaoke.contract import LyricsDoc
 from karaoke.core import SongId, SongMeta
-from karaoke.songs.catalog import Catalog
-from karaoke.songs.prepare import _lyrics
+from karaoke.songs.catalog import Catalog, SongNames
+from karaoke.songs.library import ADVANCED_LYRICS
+from karaoke.songs.prepare import _advanced_lyrics, _lyrics
 from karaoke.songs.prepare._accelerator import Accelerator, Separate
 from karaoke.songs.prepare._download import DownloadFailed, Downloader
-from karaoke.songs.prepare._model import Device, FromV1Files, FromYouTube, PrepFailed, Progress, Source, Stages
+from karaoke.songs.prepare._model import Device, FromV1Files, FromYouTube, Gate, PrepFailed, Progress, Source, Stages
 from karaoke.vocab import PrepStage
 
 log = logging.getLogger(__name__)
@@ -148,7 +153,7 @@ class RealStages(Stages):
         self._downloader = Downloader()
         self._accelerator = Accelerator()
         self._background: set[asyncio.Task[None]] = set()
-        self._texts: dict[SongId, asyncio.Task[str | None]] = {}
+        self._texts: dict[SongId, asyncio.Task[_lyrics.FoundLyrics | None]] = {}
 
     async def start(self) -> Device:
         task = asyncio.create_task(self._downloader.update_at_startup())
@@ -159,12 +164,12 @@ class RealStages(Stages):
     async def stop(self) -> None:
         await self._accelerator.stop()
 
-    def _text(self, song: SongMeta) -> asyncio.Task[str | None]:
+    def _text(self, song: SongMeta) -> asyncio.Task[_lyrics.FoundLyrics | None]:
         if song.id not in self._texts:
             self._texts[song.id] = asyncio.create_task(self._find_text(song))
         return self._texts[song.id]
 
-    async def _find_text(self, song: SongMeta) -> str | None:
+    async def _find_text(self, song: SongMeta) -> _lyrics.FoundLyrics | None:
         return await _lyrics.find_text(song, await self._catalog.describe(song))
 
     async def download(self, song: SongMeta, source: Source, into: Path, progress: Progress) -> None:
@@ -199,13 +204,51 @@ class RealStages(Stages):
         log.info("%s: opus encoding took %.1fs", into.name, time.monotonic() - t)
 
     async def lyrics(self, song: SongMeta, into: Path, progress: Progress) -> None:
+        """lyrics.json, then advanced lyrics matching (lyrics.advanced.json). lyrics.json is written last, so a
+        crash before it re-runs both. Advanced matching never fails the song."""
         t = time.monotonic()
-        text = await self._text(song)
+        found = await self._text(song)
         del self._texts[song.id]
         log.info("%s: lyrics text ready after %.1fs more", song.id, time.monotonic() - t)
         t = time.monotonic()
-        doc = await _lyrics.build(song, text, into / "vocals.wav", self._accelerator, progress)
-        part = into / "lyrics.json.part"
-        part.write_text(doc.model_dump_json(by_alias=True), "utf-8")
-        os.replace(part, into / "lyrics.json")
+        doc = await _lyrics.build(song, found.text if found else None, into / "vocals.wav", self._accelerator,
+                                  lambda p: progress(0.4 * p))
         log.info("%s: alignment took %.1fs", song.id, time.monotonic() - t)
+        await self._advanced(song.id, found if doc.source == "lrclib" else None, into / "vocals.wav", into, doc,
+                             lambda p: progress(0.4 + 0.6 * p))
+        write_doc(into / "lyrics.json", doc)
+
+    async def advanced_lyrics(self, song: SongMeta, names: SongNames, folder: Path, gate: Gate) -> None:
+        """Advanced lyrics matching for a song already in the library. The vocal WAV was deleted at install,
+        so the vocal track is decoded again into a temporary folder."""
+        found = await _lyrics.find_text(song, names)
+        current = LyricsDoc.model_validate_json((folder / "lyrics.json").read_text("utf-8"))
+        with tempfile.TemporaryDirectory(prefix="karaoke-advanced-") as tmp:
+            wav = Path(tmp) / "vocals.wav"
+            if found is not None:
+                await ffmpeg("-i", folder / "vocals.opus", "-ac", "2", "-ar", "44100", "-f", "wav", wav)
+            async with gate():
+                await self._advanced(song.id, found, wav, folder, current, lambda p: None)
+
+    async def _advanced(self, song: SongId, found: _lyrics.FoundLyrics | None, wav: Path, into: Path,
+                        current: LyricsDoc, progress: Progress) -> None:
+        """Writes lyrics.advanced.json when matching works, and the 'tried' marker either way, so the library
+        job does not retry a song that cannot be matched. A crash writes no marker: the job retries it."""
+        t = time.monotonic()
+        try:
+            doc = (await _advanced_lyrics.build_advanced(found, wav, self._accelerator, progress, current)
+                   if found else None)
+        except Exception:
+            log.exception("%s: advanced lyrics matching crashed", song)
+            return
+        if doc is not None:
+            write_doc(into / ADVANCED_LYRICS, doc)
+        _advanced_lyrics.mark_tried(into)
+        log.info("%s: advanced lyrics matching took %.1fs (%s)", song, time.monotonic() - t,
+                 "written" if doc else "not matched")
+
+
+def write_doc(path: Path, doc: LyricsDoc) -> None:
+    part = path.with_name(path.name + ".part")
+    part.write_text(doc.model_dump_json(by_alias=True, exclude_none=True), "utf-8")
+    os.replace(part, path)

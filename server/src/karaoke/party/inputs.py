@@ -128,13 +128,19 @@ class SetAvOffset:
 
 
 @dataclass(frozen=True, slots=True)
+class SetAdvancedLyrics:
+    by: SingerId
+    on: bool
+
+
+@dataclass(frozen=True, slots=True)
 class ResolveRestart:
     keep: bool
 
 
 PhoneCommand = (
     Hello | Rename | QueueSong | RemoveEntry | MoveEntry
-    | SetPaused | Skip | SetKey | StepKey | SetVocal | SetVocalOn | SetAvOffset | ResolveRestart
+    | SetPaused | Skip | SetKey | StepKey | SetVocal | SetVocalOn | SetAvOffset | ResolveRestart | SetAdvancedLyrics
 )
 
 # ---- TV reports ---------------------------------------------------------------------

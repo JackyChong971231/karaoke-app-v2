@@ -45,9 +45,38 @@ class Align:
 @dataclass(frozen=True, slots=True)
 class Transcribe:
     vocals_wav: Path
+    language: str | None = None
+    """None: Whisper detects it. Advanced lyrics matching passes the lyrics' language."""
 
 
-Task = Separate | Align | Transcribe
+@dataclass(frozen=True, slots=True)
+class Clip:
+    start: float
+    end: float
+    text: str
+    """Same format as Align.text."""
+
+
+@dataclass(frozen=True, slots=True)
+class AlignClips:
+    """Align each clip's text against only that stretch of the vocal track. Times come back in song time.
+    A clip the aligner cannot place comes back as None, so one bad clip never fails the rest."""
+
+    vocals_wav: Path
+    language: str
+    clips: tuple[Clip, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class Loudness:
+    """RMS of the vocal track per LOUDNESS_FRAME_S, mono, full scale 1.0."""
+
+    vocals_wav: Path
+
+
+LOUDNESS_FRAME_S = 0.1
+
+Task = Separate | Align | Transcribe | AlignClips | Loudness
 
 
 @dataclass(frozen=True, slots=True)

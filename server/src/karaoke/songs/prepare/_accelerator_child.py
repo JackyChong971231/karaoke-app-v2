@@ -14,7 +14,8 @@ from typing import Any
 
 from karaoke.songs.prepare._model import Device
 from karaoke.songs.prepare._accelerator import (
-    WHISPER_MODEL, Align, AlignedLine, AlignedWord, Separate, Task, Transcribe, Transcript,
+    LOUDNESS_FRAME_S, WHISPER_MODEL, Align, AlignClips, AlignedLine, AlignedWord, Loudness, Separate, Task,
+    Transcribe, Transcript,
 )
 
 
@@ -69,6 +70,10 @@ class _Models:
                 return self.align(task)
             case Transcribe():
                 return self.transcribe(task)
+            case AlignClips():
+                return self.align_clips(task, progress)
+            case Loudness():
+                return loudness(task)
 
     def separate(self, task: Separate, progress: Callable[[float], None]) -> None:
         import soundfile as sf
@@ -109,12 +114,45 @@ class _Models:
         return _lines(res)
 
     def transcribe(self, task: Transcribe) -> Transcript:
-        res = self._model().transcribe(str(task.vocals_wav), verbose=None)
-        return Transcript(str(res.language or "en"), _lines(res))
+        res = self._model().transcribe(str(task.vocals_wav), language=task.language, verbose=None)
+        return Transcript(str(res.language or task.language or "en"), _lines(res))
+
+    def align_clips(self, task: AlignClips, progress: Callable[[float], None]) -> tuple[tuple[AlignedLine, ...] | None, ...]:
+        from stable_whisper.audio import load_audio
+
+        rate = 16000
+        audio = load_audio(str(task.vocals_wav), sr=rate, verbose=None)
+        out: list[tuple[AlignedLine, ...] | None] = []
+        for i, clip in enumerate(task.clips):
+            piece = audio[max(0, int(clip.start * rate)):max(0, int(clip.end * rate))]
+            try:
+                if len(piece) < rate // 4:
+                    raise ValueError("clip too short")
+                res = self._model().align(piece, clip.text, language=task.language, original_split=True,
+                                          verbose=None)
+                out.append(None if res is None else _lines(res, clip.start))
+            except Exception:
+                out.append(None)
+            progress((i + 1) / len(task.clips))
+        return tuple(out)
 
 
-def _lines(res: Any) -> tuple[AlignedLine, ...]:
+def loudness(task: Loudness) -> tuple[float, ...]:
+    import numpy as np
+    import soundfile as sf
+
+    audio, rate = sf.read(task.vocals_wav, dtype="float32", always_2d=True)
+    mono = audio.mean(axis=1)
+    step = max(1, int(rate * LOUDNESS_FRAME_S))
+    frames = len(mono) // step
+    if frames == 0:
+        return ()
+    blocks = mono[:frames * step].reshape(frames, step)
+    return tuple(float(x) for x in np.sqrt((blocks * blocks).mean(axis=1)))
+
+
+def _lines(res: Any, offset: float = 0.0) -> tuple[AlignedLine, ...]:
     return tuple(
-        AlignedLine(tuple(AlignedWord(w.word, float(w.start), float(w.end)) for w in seg.words))
+        AlignedLine(tuple(AlignedWord(w.word, float(w.start) + offset, float(w.end) + offset) for w in seg.words))
         for seg in res.segments if seg.text.strip()
     )

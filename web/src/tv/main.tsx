@@ -25,7 +25,10 @@ function byId<T extends HTMLElement>(id: string, type: new () => T): T {
 function boot(): void {
   const video = byId("video", HTMLVideoElement);
   const engine = AudioEngine.create();
-  const lyrics = new LyricsRenderer([byId("slot0", HTMLDivElement), byId("slot1", HTMLDivElement)]);
+  const lyrics = new LyricsRenderer(
+    [byId("slot0", HTMLDivElement), byId("slot1", HTMLDivElement)],
+    byId("lyricsBreak", HTMLDivElement),
+  );
   const socket = connectTv();
 
   let stage: Stage = { kind: "idle" };
@@ -36,6 +39,7 @@ function boot(): void {
     video,
     send: (cmd) => void socket.send(cmd).catch(() => undefined),
     fetchLyrics: api.lyrics,
+    fetchAdvancedLyrics: api.advancedLyrics,
     onStage: (next) => {
       stage = next;
       for (const l of stageListeners) l();

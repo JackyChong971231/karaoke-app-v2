@@ -234,6 +234,104 @@ These implement the product spec's "Read the lyrics from a lyrics site".
 - Each request has a 10 s timeout. Any network error or unexpected page shape counts as "site down" for that site.
 - External integrations: a site changing its page shape shows that one site as down on the phone. The TV and preparation never depend on these sites.
 
+## Changes for 2026-11-14: advanced lyrics matching
+
+These implement the product spec's "Advanced lyrics matching". The current "Prepare lyrics" steps stay exactly as they are.
+
+### Kept apart so it can be removed
+
+- New module `songs/prepare/_advanced_lyrics.py`. It is the only code that knows about anchors, breaks, and line matching. It reads the song's LRCLIB text and vocal track, and writes `lyrics.advanced.json`.
+- `lyrics.json` is still written by the current steps for every song. The advanced file sits beside it in the song folder and is optional. A song is complete without it.
+- `Settings` gains `advanced_lyrics: bool`, default `false`. The server owns it and syncs it like the vocal and key settings.
+- The TV loads both files when a song starts. It draws from `lyrics.advanced.json` when the setting is on and the file exists, and from `lyrics.json` otherwise.
+- A change to the setting mid-song swaps which file the renderer draws from on the next frame. Both files use the audio position as their clock, so playback is not touched. Assumption: the swap clears both lyric slots and redraws them for the current position, with no fade.
+- The phone's now playing and the control page show the switch. It sends the new value like the vocal switch, and the server broadcasts it to every screen.
+- To dump the approach: delete the module, the setting, the TV's file choice, and the break display, then delete every `lyrics.advanced.json`.
+
+### Lyrics file
+
+- `lyrics.advanced.json` uses the same `LyricsDoc` shape, so the TV draws it with the same renderer, plus two optional fields:
+  - `breaks`: stretches of 8 s or more where nobody sings the song, each with `start`, `end`, and `kind` (`intro`, `break`, or `outro`).
+  - per line, `estimated: true` when the line's time was guessed rather than matched. The TV ignores it (product decision: no mark). It is kept for measuring and debugging.
+- Assumption: `LyricsDoc.version` becomes 2 for files with these fields. The TV reads version 1 and version 2.
+
+### Steps
+
+Run after the current steps for every song, whatever the setting, as part of the "aligning" stage. `lyrics.json` is written last, so a crash re-runs both. A song is ready when `lyrics.json` exists. If advanced matching fails or crashes, the song is still ready, without `lyrics.advanced.json`.
+
+The current lyrics are evidence, not a competitor. Advanced matching keeps their timing wherever the audio agrees with it, and changes a line only where the evidence says it is wrong, which is mostly intros and breaks.
+
+1. **Keep LRCLIB's line times.** The current lookup throws them away. Advanced matching keeps each synced line's start time.
+2. **Listen.** Transcribe the vocal track with `stable-ts` and Whisper `small`, in the lyrics' language, with word times. Measure the vocal track's loudness every 0.1 s.
+3. **Find anchors.** Compare the transcript with every LRCLIB line, after the normalising `restore_alignment` uses (NFKC, case folded, letters and digits only).
+   - Chinese, Japanese, and Korean compare per character, but an English word inside them stays one unit. Letter by letter, a repeated English hook such as "anytime, anywhere" matched everywhere.
+   - Chinese compares as Simplified, because Whisper writes either script and the Hong Kong forms the TV shows (説) differ from LRCLIB's Taiwan forms (說).
+   - An anchor needs a run of at least 3 words, or 4 characters, in a row, and must cover at least 60% of the line. A shared opening such as 如果你能 is not enough.
+   - The matched pieces must be heard within 2 s of each other. Whisper's text runs on across pauses, so without this one match was stitched from words 10 s apart.
+   - Intro speech, dialogue, and crowd noise do not match lyrics, so they create no anchors. A line shorter than an anchor never anchors; it is placed by step 6.
+4. **Choose which lines are sung, and where.** Pick the chain of matches, in time order, with the best total of matched units.
+   - Following LRCLIB's order costs nothing. A forward skip costs 0.5 units. A repeat or a jump back costs 3 units.
+   - With LRCLIB times, a change of offset (time heard minus LRCLIB's time) between neighbouring matches costs 0.5 units per second, at most 7.5. This picks the right copy of a repeated chorus, which is a minute away from the wrong one. It drops a line Whisper invented by repeating itself in an instrumental, because that jumps away and back. An inserted drama scene shifts the offset once and pays once.
+5. **Keep heard lines the current lyrics already time right.** When the current lyrics start a heard line within 1.5 s of where Whisper heard it, and between its neighbours, their word times are kept. Otherwise the line gets a clip: from its first heard word to its last, widened by the song's typical singing rate for missed words, plus 1 s each side, never past its neighbouring anchors.
+6. **Place the lines Whisper did not hear.** Whisper `small` skips whole soft passages, such as both verses of 如果的事. For each unheard line, in order of trust:
+   1. The current lyrics' time, when it sits on voice between the neighbouring anchors and is within 3 s of LRCLIB's time shifted by the neighbours' offsets. Trusting it without LRCLIB's agreement broke 突然好想你, whose current lyrics drift mid-song too.
+   2. LRCLIB's shifted time, when at least 30% of that stretch has voice. The line gets a clip there.
+   3. For plain lyrics (no LRCLIB times): the current lyrics' time between two anchors, else voice right next to the anchor, through gaps of up to 4 s.
+
+   Otherwise the line is left out: it was not sung, as for a verse a live show skipped. These lines are marked `estimated: true`.
+7. **Time the words.** Clips that touch are merged. Each clip is aligned with `stable-ts` against only its own audio, and its start time is added back. A line can then never spill into an intro or a break. A clip the aligner cannot place shares its clip evenly, marked `estimated`.
+8. **Check each line.** A line squeezed faster than 2.5 times the song's typical singing rate was misplaced by the aligner: it is spread at the typical rate and marked `estimated`. No word starts before the previous line ends.
+9. **Find breaks.** A stretch of 8 s or more with no lyrics: `intro` before the first line, `break` between lines, `outro` after the last.
+10. **Apply the current finishing steps:** widen first words and fit lines to the screen width.
+11. **Fall back when matching fails.** No advanced file is written, and the song uses `lyrics.json`, when:
+    - fewer than 30% of LRCLIB's lines get an anchor; or
+    - more than 15% of the lines (and more than 2) are left out with no mid-song break to explain it.
+
+    The log records the reason.
+
+A file `lyrics.advanced.tried` in the song folder holds the matching version that last finished, whether it wrote lyrics or not. A crash writes no marker. The version is 3; raising it re-matches every library song.
+
+### Measured results (2026-11-14)
+
+On 10 library songs chosen for being hard: the 6 the first version broke, the 3 it fixed, and the live recording. "Within 1 s" is the share of lines within 1 s of LRCLIB's times after one constant offset. That is a reference, not ground truth. "Silent" is seconds of lit words over a silent vocal track.
+
+| Song | Current: within 1 s, silent | Advanced: within 1 s, silent | Notes |
+| --- | --- | --- | --- |
+| 如果的事 | 98%, 1.6 s | 98%, 1.6 s | All 40 lines. Finds the 20 s instrumental break. |
+| Sugar Talking | 95%, 5.2 s | 92%, 2.8 s | Leaves out the ad-lib "(Want me)". |
+| Choosin' Texas | 100%, 9.5 s | 97%, 3.8 s | |
+| 潮共 | 100%, 0 s | 100%, 0 s | |
+| Anytime Anywhere | 92%, 6.9 s | 98%, 6.9 s | Leaves out five backing ad-libs "(anytime, anywhere)" in the outro. |
+| BANG BANG BANG | 80%, 9.2 s | 91%, 1.2 s | |
+| 踊り子 | 8%, 17.8 s | 73%, 8.0 s | |
+| 突然好想你 | 67%, 13.7 s, first line at 2 s | 90%, 1.5 s, first line at 35 s | The intro case. |
+| 一場誤會 | 82%, 7.6 s, first line at 14 s | 97%, 0.1 s, first line at 21 s | The intro case. |
+| 普渡眾生 (live) | 100%, 20.1 s | 100%, 12.7 s | Finds an 8 s break. |
+
+No first line got worse. Advanced matching took a median of 13 s per song with the RTX 4060 (8 to 61 s), on top of today's preparation.
+
+Over all 75 library songs, the first version fixed the first line of 5 songs and broke 5, and left out 3 or more lines on 15. That run found the causes fixed above: soft passages Whisper does not hear, choosing the wrong copy of a chorus, stitched and partial matches, invented repeats, and English hooks inside Japanese lyrics.
+
+### Songs already in the library
+
+- On start, a background job runs advanced matching for every library song with LRCLIB lyrics whose `lyrics.advanced.tried` is missing or older than the current matching version. It runs whatever the setting.
+- It looks the lyrics up on LRCLIB again for the line times, then holds the accelerator one song at a time, at a lower priority than any queued or imported song.
+- The vocal WAV is deleted when a song is installed, so the job decodes `vocals.opus` to a temporary WAV and deletes it afterwards.
+- The media route serves lyrics files with `Cache-Control: no-cache`, since the job adds them after install. Audio and video stay cached for a year.
+
+### TV: breaks
+
+- During a break, both lyric slots are empty and the lyrics area shows "♪ intro" or "♪ break" with the seconds left until the next line.
+- The next line's slot fills 3 s before it starts, then playback continues as in "Show lyrics".
+- Outros show nothing.
+
+### Measuring
+
+- `server/tests/lyrics_eval/run_eval.py` runs both approaches on library songs, writing nothing into the library. Per song, it prints the share of lines within 1 s of LRCLIB's times after one constant offset, when the first line lights up, and the seconds of lit words over a silent vocal track.
+- Hand-marked times for the user's own problem videos can be added once the user names them (open question in the product spec).
+- Unit tests feed made-up transcripts to steps 3 to 11: intro speech, an unheard first line after a talking intro, a repeated chorus with a skipped verse, mid-song dialogue, a crowd-sung line, unsung lines with no voice, too few anchors, Chinese in mixed scripts, and each failure found on 如果的事 (an unheard opening verse, the wrong chorus copy, an invented repeat, a shared opening, a stitched match, too many lines left out).
+- A browser test switches the setting mid-song on the fake world and checks that the TV swaps lyrics at the same position and counts down the intro.
+
 ## Verification
 
 - Unit tests cover the fairness order, including both examples in the product spec and the user's 2026-11-12 example.
@@ -242,4 +340,4 @@ These implement the product spec's "Read the lyrics from a lyrics site".
 
 ## Open questions
 
-None.
+- **Advanced lyrics matching (2026-11-14):** the thresholds were tuned on 10 library songs ("Measured results (2026-11-14)"), not on the user's own problem videos. Whisper `small` is kept: it took a median of 13 s per song, and the passages it misses are now placed from LRCLIB's times and the current lyrics instead. Backing ad-libs in parentheses that Whisper does not hear can be left out; whether that is acceptable is for the user to judge in use.

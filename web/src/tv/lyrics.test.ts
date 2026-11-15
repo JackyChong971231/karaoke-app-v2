@@ -1,6 +1,29 @@
 import { describe, expect, it } from "vitest";
 import type { LyricsLine } from "../wire/types";
-import { currentLine, fitLines, LINE_HOLD_S, slotLines, wordFill } from "./lyrics";
+import { activeBreak, currentLine, fitLines, LINE_HOLD_S, slotLines, wordFill } from "./lyrics";
+
+describe("advanced lyrics breaks", () => {
+  const breaks = [
+    { start: 0, end: 20, kind: "intro" as const },
+    { start: 90, end: 105, kind: "break" as const },
+    { start: 230, end: 260, kind: "outro" as const },
+  ];
+
+  it("counts down an intro or break until 3 s before its next line", () => {
+    expect(activeBreak(breaks, 0)).toEqual({ kind: "intro", secondsLeft: 20 });
+    expect(activeBreak(breaks, 12.2)).toEqual({ kind: "intro", secondsLeft: 8 });
+    expect(activeBreak(breaks, 16.9)).toEqual({ kind: "intro", secondsLeft: 4 });
+    expect(activeBreak(breaks, 17)).toBeNull();
+    expect(activeBreak(breaks, 95)).toEqual({ kind: "break", secondsLeft: 10 });
+  });
+
+  it("shows nothing for an outro, between breaks, or for lyrics without breaks", () => {
+    expect(activeBreak(breaks, 240)).toBeNull();
+    expect(activeBreak(breaks, 50)).toBeNull();
+    expect(activeBreak(undefined, 5)).toBeNull();
+    expect(activeBreak(null, 5)).toBeNull();
+  });
+});
 
 const line = (start: number, texts: string[]): LyricsLine => ({
   words: texts.map((text, i) => ({ text, start: start + i, end: start + i + 1, gapBefore: i > 0 })),

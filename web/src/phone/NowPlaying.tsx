@@ -54,7 +54,7 @@ export function NowPlaying(props: { onFindSong: () => void }): JSX.Element {
         </div>
       </div>
       <Progress now={now} />
-      <Transport now={now} />
+      <Transport now={now} advancedLyrics={view.settings.advancedLyrics} />
       <div className="cards">
         <VocalCard level={view.settings.vocalLevel} />
         <KeyCard now={now} />
@@ -109,7 +109,7 @@ function Progress(props: { now: NowView }): JSX.Element {
   );
 }
 
-function Transport(props: { now: NowView }): JSX.Element {
+function Transport(props: { now: NowView; advancedLyrics: boolean }): JSX.Element {
   const store = useStore();
   const { pending } = usePhone();
   const { now } = props;
@@ -117,7 +117,13 @@ function Transport(props: { now: NowView }): JSX.Element {
   const skipping = pending.has("skip");
   return (
     <div className="transport">
-      <div className="transport-side">{now.lyricsFlagged && <LyricsFlag look="side" testId="now-lyrics-flagged" />}</div>
+      <div className="transport-side">
+        {now.lyricsFlagged ? (
+          <LyricsFlag look="side" testId="now-lyrics-flagged" />
+        ) : (
+          <AdvancedLyricsSwitch on={props.advancedLyrics} />
+        )}
+      </div>
       <button
         className="round round-xl"
         data-testid="pause"
@@ -140,6 +146,35 @@ function Transport(props: { now: NowView }): JSX.Element {
         <span className="round-label">Skip</span>
       </div>
     </div>
+  );
+}
+
+// The advanced lyrics matching switch, app-wide, shown on every phone and the control page. Every song has both
+// lyrics, so the TV swaps at once, mid-song too. A song flagged "Lyrics may be wrong" shows that flag here instead:
+// it has no advanced lyrics, so the switch would do nothing for it.
+function AdvancedLyricsSwitch(props: { on: boolean }): JSX.Element {
+  const store = useStore();
+  const { pending } = usePhone();
+  return (
+    <>
+      <button
+        type="button"
+        role="switch"
+        className="switch"
+        data-testid="advanced-lyrics-toggle"
+        aria-checked={props.on}
+        aria-label="Advanced lyrics matching"
+        disabled={pending.has("advancedLyrics")}
+        onClick={() => void store.run("advancedLyrics", { kind: "setAdvancedLyrics", on: !props.on })}
+      >
+        <span className="switch-knob" />
+      </button>
+      <span className="round-label round-label-stack">
+        Advanced
+        <br />
+        lyrics
+      </span>
+    </>
   );
 }
 

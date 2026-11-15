@@ -83,7 +83,8 @@ def phone_view(rev: int, state: PartyState, board: Mapping[SongId, PrepStatus], 
             )
             for e in state.queue
         ],
-        settings=c.SettingsView(vocal_level=state.settings.vocal_level, av_offset_s=state.settings.av_offset_s),
+        settings=c.SettingsView(vocal_level=state.settings.vocal_level, av_offset_s=state.settings.av_offset_s,
+                                advanced_lyrics=state.settings.advanced_lyrics),
         tv_connected=state.tv_connected,
         device=device,
     )
@@ -104,6 +105,7 @@ def tv_view(rev: int, state: PartyState, resume_at: Mapping[int, float], join_ur
         ) if isinstance(now, Playing) else None,
         vocal_level=state.settings.vocal_level,
         av_offset_s=state.settings.av_offset_s,
+        advanced_lyrics=state.settings.advanced_lyrics,
         up_next=c.UpNext(
             title=first.song.title, singer_name=shown_name(first.singer, first.singer_name),
             ready=first.song.id in state.ready,

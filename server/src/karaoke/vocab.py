@@ -30,7 +30,8 @@ ImportDecision = Literal["proposed", "confirmed", "corrected", "skipped"]
 """The user's decision per v1 song. 'Imported' and 'failed' are NOT decisions: they are derived from the
 library and the preparation board when the review page is rendered."""
 
-MediaFile = Literal["video.mp4", "instrumental.opus", "vocals.opus", "lyrics.json"]
+MediaFile = Literal["video.mp4", "instrumental.opus", "vocals.opus", "lyrics.json", "lyrics.advanced.json"]
+"""Files the media route serves. Every one but lyrics.advanced.json is required (library.SONG_FILES)."""
 
 PlaceId = Literal["hk", "tw", "cn", "jp", "kr", "west"]
 """The browse boxes, by where a singer is from (spec "Browse for songs"): 香港 台灣 中國 日本 韓國 歐美."""

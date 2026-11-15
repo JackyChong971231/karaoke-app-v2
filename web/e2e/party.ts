@@ -18,6 +18,8 @@ export interface TvProbe {
   videoTime: number;
   stage: { kind: "idle" | "loading" | "playing" | "failed" };
   slots: { line: number | null; text: string; fills: number[] }[];
+  breakText: string;
+  version: number | null;
 }
 
 function freePort(): Promise<number> {

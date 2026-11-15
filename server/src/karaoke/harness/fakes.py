@@ -13,10 +13,11 @@ from pathlib import Path
 from typing import Any, Literal
 
 from karaoke.core import ArtistId, ArtistRef, SongId, SongMeta
-from karaoke.harness.media import DURATION_S, Media, lyrics_doc
+from karaoke.harness.media import DURATION_S, Media, advanced_lyrics_doc, lyrics_doc
 from karaoke.songs.library import Library, SongRecord
 from karaoke.songs.lyric_sites import SiteAnswer, SiteDown, SiteLink, SiteNone, SiteText, SongQuery
-from karaoke.songs.prepare import FromV1Files, FromYouTube, PrepFailed, Source, Stages
+from karaoke.songs.catalog import SongNames
+from karaoke.songs.prepare import FromV1Files, FromYouTube, Gate, PrepFailed, Source, Stages
 from karaoke.vocab import LyricsSite
 
 FailMode = Literal["once", "always", "crash"]
@@ -259,7 +260,17 @@ class FakeStages(Stages):
 
     async def lyrics(self, song: SongMeta, into: Path, progress: Any) -> None:
         await self._stage(song.id, "lyrics", progress)
-        _write(into / "lyrics.json", lyrics_doc().model_dump_json(by_alias=True))
+        _write_advanced(into)
+        _write(into / "lyrics.json", lyrics_doc().model_dump_json(by_alias=True, exclude_none=True))
+
+    async def advanced_lyrics(self, song: SongMeta, names: SongNames, folder: Path, gate: Gate) -> None:
+        async with gate():
+            _write_advanced(folder)
+
+
+def _write_advanced(folder: Path) -> None:
+    _write(folder / "lyrics.advanced.json", advanced_lyrics_doc().model_dump_json(by_alias=True, exclude_none=True))
+    _write(folder / "lyrics.advanced.tried", "1")
 
 
 def _put(src: Path, dst: Path) -> None:
@@ -293,7 +304,9 @@ def seed_library(library: Library, media: Media) -> None:
         _put(media.video(meta.id), d / "video.mp4")
         _put(media.instrumental, d / "instrumental.opus")
         _put(media.vocals, d / "vocals.opus")
-        _write(d / "lyrics.json", lyrics_doc(transcribed).model_dump_json(by_alias=True))
+        _write(d / "lyrics.json", lyrics_doc(transcribed).model_dump_json(by_alias=True, exclude_none=True))
+        if not transcribed:
+            _write_advanced(d)
         library.install(meta.id, SongRecord(
             meta=meta, artist_names=names, alt_titles=(meta.title,), language="en",
             lyrics_source="transcribed" if transcribed else "lrclib",

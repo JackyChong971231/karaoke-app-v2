@@ -240,8 +240,11 @@ def routes(s: Services) -> list[BaseRoute]:
         path = lib.media_path(SongId(request.path_params["song_id"]), file)
         if path is None:
             return PlainTextResponse("not found", status_code=404)
+        # Lyrics files can be written after install (advanced lyrics matching fills in library songs), so the TV
+        # revalidates them. Audio and video never change once installed.
+        cache = "no-cache" if path.suffix == ".json" else "public, max-age=31536000, immutable"
         return FileResponse(path, media_type=_MEDIA_TYPES.get(path.suffix, "application/octet-stream"),
-                            headers={"Cache-Control": "public, max-age=31536000, immutable"})
+                            headers={"Cache-Control": cache})
 
     async def thumb(request: Request) -> Response:
         """A downloaded song's picture (spec "Song pictures"). 404 for a song not downloaded: the page then uses YouTube's."""

@@ -122,6 +122,8 @@ class Settings:
     so every phone restores the same level."""
     av_offset_s: float = 0.0
     """TV display lag. Video and lyrics are drawn this much earlier than the audible position."""
+    advanced_lyrics: bool = False
+    """The advanced lyrics matching switch. Every song has both lyrics; this picks which the TV draws."""
 
 
 @dataclass(frozen=True, slots=True)

@@ -16,6 +16,7 @@ import unicodedata
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from difflib import SequenceMatcher
 from functools import lru_cache
 from pathlib import Path
@@ -73,19 +74,44 @@ def to_traditional(text: str) -> str:
 
 # ---- LRCLIB ----
 
-def lrc_text(lyrics: str, titles: Sequence[str] = ()) -> str:
-    """Sung line text from synced or plain lyrics. Timestamps, blank lines, and credits are dropped: credit
-    lines (詞：, 曲：) and a leading "title - artist" line are never sung, so the aligner squeezes them to
-    zero length."""
-    lines = [line for line in (_LRC_TAG.sub("", raw).strip() for raw in lyrics.splitlines()) if line]
-    lines = [line for line in lines if not _CREDIT.match(line)]
+@dataclass(frozen=True, slots=True)
+class FoundLyrics:
+    text: str
+    """Sung lines, newline separated (lrc_text)."""
+    times: tuple[float | None, ...]
+    """LRCLIB's start time for each line of `text`, timed against the album. None for plain lyrics."""
+
+
+_LRC_TIME = re.compile(r"\[(\d+):(\d+(?:\.\d+)?)\]")
+
+
+def lrc_lines(lyrics: str, titles: Sequence[str] = ()) -> list[tuple[str, float | None]]:
+    """Sung lines with their first LRC time. Timestamps, blank lines, and credits are dropped: credit lines
+    (詞：, 曲：) and a leading "title - artist" line are never sung, so the aligner squeezes them to zero length."""
+    lines: list[tuple[str, float | None]] = []
+    for raw in lyrics.splitlines():
+        text = _LRC_TAG.sub("", raw).strip()
+        if not text or _CREDIT.match(text):
+            continue
+        tag = _LRC_TAG.match(raw)
+        m = _LRC_TIME.search(tag.group()) if tag else None
+        lines.append((text, int(m.group(1)) * 60 + float(m.group(2)) if m else None))
     keys = [search_key(core_title(t)) for t in titles if t]
-    while lines and re.search(r"[-–—]", lines[0]) and any(k and k in search_key(lines[0]) for k in keys):
+    while lines and re.search(r"[-–—]", lines[0][0]) and any(k and k in search_key(lines[0][0]) for k in keys):
         lines.pop(0)
-    return "\n".join(lines)
+    return lines
+
+
+def lrc_text(lyrics: str, titles: Sequence[str] = ()) -> str:
+    return "\n".join(text for text, _ in lrc_lines(lyrics, titles))
 
 
 def pick_lrclib(hits: Sequence[dict], titles: Sequence[str], want_script: str | None) -> str | None:  # type: ignore[type-arg]
+    found = pick_lrclib_found(hits, titles, want_script)
+    return found.text if found else None
+
+
+def pick_lrclib_found(hits: Sequence[dict], titles: Sequence[str], want_script: str | None) -> FoundLyrics | None:  # type: ignore[type-arg]
     """The best hit for the song: its title must match, then the song's own script (Hangul over romanized
     Korean), then synced over plain, then LRCLIB's own order."""
     keys = {search_key(core_title(t)) for t in titles if t}
@@ -105,7 +131,10 @@ def pick_lrclib(hits: Sequence[dict], titles: Sequence[str], want_script: str | 
         return (bool(want_script) and detect_language(text) != want_script, not h.get("syncedLyrics"), i)
 
     best = usable[min(range(len(usable)), key=rank)]
-    return lrc_text(best.get("syncedLyrics") or best.get("plainLyrics") or "", titles) or None
+    lines = lrc_lines(best.get("syncedLyrics") or best.get("plainLyrics") or "", titles)
+    if not lines:
+        return None
+    return FoundLyrics("\n".join(t for t, _ in lines), tuple(s for _, s in lines))
 
 
 def _get(params: dict[str, str]) -> list[dict]:  # type: ignore[type-arg]
@@ -115,7 +144,7 @@ def _get(params: dict[str, str]) -> list[dict]:  # type: ignore[type-arg]
         return list(json.load(r))
 
 
-async def lookup_lrclib(titles: Sequence[str], artists: Sequence[str]) -> str | None:
+async def lookup_lrclib(titles: Sequence[str], artists: Sequence[str]) -> FoundLyrics | None:
     """Search by every known title and artist spelling. Network errors count as 'no lyrics'."""
     cores = list(dict.fromkeys(core_title(t) for t in titles if t))
     queries = [{"track_name": t, "artist_name": a} for t in cores for a in dict.fromkeys(artists) if a][:4]
@@ -124,7 +153,7 @@ async def lookup_lrclib(titles: Sequence[str], artists: Sequence[str]) -> str | 
     want = None if script == "en" else script
     for q in queries:
         try:
-            text = pick_lrclib(await asyncio.to_thread(_get, q), cores, want)
+            text = pick_lrclib_found(await asyncio.to_thread(_get, q), cores, want)
         except Exception as e:
             log.warning("LRCLIB query %s failed: %s", q, e)
             continue
@@ -253,7 +282,7 @@ def widen_first_words(lines: list[LyricsLine]) -> list[LyricsLine]:
         if first.end - first.start < 0.5 * typical:
             first = first.model_copy(update={"start": round(max(prev_end, first.end - typical), 3)})
             ws = [first, *ws[1:]]
-        out.append(LyricsLine(words=list(ws)))
+        out.append(LyricsLine(words=list(ws), estimated=line.estimated))
         prev_end = ws[-1].end
     return out
 
@@ -269,7 +298,7 @@ def line_width_em(words: Sequence[LyricsWord]) -> float:
 def fit_lines(lines: list[LyricsLine], budget_em: float) -> list[LyricsLine]:
     """Split any line wider than budget at the word gap nearest its middle (real spaces and punctuation
     get a x0.7 distance bonus), recursively. Each half keeps its word times."""
-    return [LyricsLine(words=ws) for line in lines for ws in _fit(line.words, budget_em)]
+    return [LyricsLine(words=ws, estimated=line.estimated) for line in lines for ws in _fit(line.words, budget_em)]
 
 
 def _fit(words: list[LyricsWord], budget: float) -> list[list[LyricsWord]]:
@@ -288,7 +317,7 @@ def _fit(words: list[LyricsWord], budget: float) -> list[list[LyricsWord]]:
 
 # ---- the whole step ----
 
-async def find_text(song: SongMeta, names: SongNames) -> str | None:
+async def find_text(song: SongMeta, names: SongNames) -> FoundLyrics | None:
     titles = list(dict.fromkeys([song.title, *names.alt_titles]))
     artists = list(dict.fromkeys([song.artist.name, *names.artist_names]))
     return await lookup_lrclib(titles, artists)

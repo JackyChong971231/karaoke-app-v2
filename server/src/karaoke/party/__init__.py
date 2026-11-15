@@ -12,7 +12,7 @@ karaoke.party.fairness, .reduce, or .projections from outside the package.
 
 from karaoke.party.inputs import (
     Before, End, FillerPicked, Front, Hello, Input, MoveEntry, PhoneCommand, Position, QueueSong,
-    RemoveEntry, Rename, ResolveRestart, SetAvOffset, SetKey, SetPaused, SetVocal, SetVocalOn, Skip, SongReady,
+    RemoveEntry, Rename, ResolveRestart, SetAdvancedLyrics, SetAvOffset, SetKey, SetPaused, SetVocal, SetVocalOn, Skip, SongReady,
     StepKey, TrackEnded, TrackFailed, TvPresence,
 )
 from karaoke.party.model import (
@@ -27,6 +27,6 @@ __all__ = [
     "filler_request", "FillerPicked", "FillerRequest", "FromQueue", "Front", "Hello", "Idle",
     "initial_state", "Input", "MoveEntry", "Outcome", "PartyState", "PhoneCommand", "PlayId", "Playing",
     "Position", "preparation_demand", "QueueEntry", "QueueSong", "reduce", "Rejected", "RemoveEntry",
-    "Rename", "ResolveRestart", "Running", "SavedEntry", "SetAvOffset", "SetKey", "SetPaused", "Settings",
+    "Rename", "ResolveRestart", "Running", "SavedEntry", "SetAdvancedLyrics", "SetAvOffset", "SetKey", "SetPaused", "Settings",
     "SetVocal", "SetVocalOn", "Skip", "SongReady", "Step", "StepKey", "TrackEnded", "TrackFailed", "TvPresence",
 ]

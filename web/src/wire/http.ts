@@ -72,6 +72,14 @@ export const api = {
   siteLyrics: (songId: string, site: LyricsSite, signal: AbortSignal) =>
     request<SiteLyricsResponse>(`/api/site-lyrics?song=${q(songId)}&site=${q(site)}`, { signal }),
   lyrics: (songId: string, signal: AbortSignal) => request<LyricsDoc>(`/media/${q(songId)}/lyrics.json`, { signal }),
+  advancedLyrics: async (songId: string, signal: AbortSignal): Promise<LyricsDoc | null> => {
+    try {
+      return await request<LyricsDoc>(`/media/${q(songId)}/lyrics.advanced.json`, { signal });
+    } catch (e) {
+      if (e instanceof HttpError && e.status === 404) return null;
+      throw e;
+    }
+  },
   importPlan: (signal?: AbortSignal) => request<ImportPlanView>("/api/import", signal ? { signal } : {}),
   importMatch: (limit: number | null) =>
     request<unknown>(limit === null ? "/api/import/plan" : `/api/import/plan?limit=${String(limit)}`, { method: "POST" }),

@@ -632,6 +632,10 @@ h3 {
   color: var(--muted);
 }
 
+.round-label-stack {
+  line-height: 1.2;
+}
+
 .cards {
   display: grid;
   gap: 8px;

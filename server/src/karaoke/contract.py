@@ -45,13 +45,26 @@ class LyricsWord(Wire):
 
 class LyricsLine(Wire):
     words: list[LyricsWord]
+    estimated: bool | None = None
+    """Advanced lyrics only: True when the line's time was guessed, not heard. The TV draws it the same."""
+
+
+class LyricsBreak(Wire):
+    """Advanced lyrics only: a stretch of 8 s or more where nobody sings the song."""
+
+    start: float
+    end: float
+    kind: Literal["intro", "break", "outro"]
 
 
 class LyricsDoc(Wire):
-    version: Literal[1]
+    """lyrics.json is version 1. lyrics.advanced.json (advanced lyrics matching) is version 2 and may carry breaks."""
+
+    version: Literal[1, 2]
     source: LyricsSource
     language: str
     lines: list[LyricsLine]
+    breaks: list[LyricsBreak] | None = None
 
 
 # =====================================================================================
@@ -111,6 +124,7 @@ class RestartOfferView(Wire):
 class SettingsView(Wire):
     vocal_level: float
     av_offset_s: float
+    advanced_lyrics: bool
 
 
 # =====================================================================================
@@ -150,6 +164,8 @@ class TvView(Wire):
     play: TvPlay | None
     vocal_level: float
     av_offset_s: float
+    advanced_lyrics: bool
+    """Draw lyrics.advanced.json when the song has one. Switching mid-song swaps the lyrics on the next frame."""
     up_next: UpNext | None
     join_url: str
     restart_offer: RestartOfferView | None
@@ -257,9 +273,16 @@ class ResolveRestartCmd(Wire):
     keep: bool
 
 
+class SetAdvancedLyricsCmd(Wire):
+    """The advanced lyrics matching switch, app-wide."""
+
+    kind: Literal["setAdvancedLyrics"]
+    on: bool
+
+
 PhoneCommand = Annotated[
     QueueLibraryCmd | QueuePickCmd | QueueFavouriteCmd | RemoveCmd | MoveCmd | SetPausedCmd | SkipCmd | SetKeyCmd | StepKeyCmd
-    | SetVocalCmd | SetVocalOnCmd | SetAvOffsetCmd | RenameCmd | ResolveRestartCmd,
+    | SetVocalCmd | SetVocalOnCmd | SetAvOffsetCmd | RenameCmd | ResolveRestartCmd | SetAdvancedLyricsCmd,
     Field(discriminator="kind"),
 ]
 

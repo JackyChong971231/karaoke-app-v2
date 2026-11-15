@@ -11,6 +11,7 @@ reducer with nothing to remember about jobs.
 States per song (the board):
 
     waiting --> downloading --> waiting --> separating --> waiting --> aligning --> ready
+                                                           (current lyrics, then advanced lyrics matching)
        ^                 (for the accelerator)        |                    |
        |            +---------------------------------+--------------------+--> failed(reason)
        +-- (retry: song leaves all demand, then is demanded again)
@@ -31,16 +32,17 @@ from types import MappingProxyType
 
 from karaoke.contract import LyricsDoc
 from karaoke.core import SongId
-from karaoke.songs.catalog import Catalog
+from karaoke.songs.catalog import Catalog, SongNames
 from karaoke.songs.library import Library, SongRecord
+from karaoke.songs.prepare import _advanced_lyrics
 from karaoke.songs.prepare._model import (
-    Device, FromV1Files, FromYouTube, Lane, PrepFailed, PrepRequest, PrepStatus, Source, Stages,
+    Device, FromV1Files, FromYouTube, Gate, Lane, PrepFailed, PrepRequest, PrepStatus, Source, Stages,
 )
 from karaoke.songs.prepare._pipeline import RealStages, Resource, prepare_song
 from karaoke.vocab import FailReason, PrepStage
 
 __all__ = [
-    "Device", "FromV1Files", "FromYouTube", "Lane", "PrepFailed", "PrepRequest", "PrepStatus", "Preparer",
+    "Device", "FromV1Files", "FromYouTube", "Gate", "Lane", "PrepFailed", "PrepRequest", "PrepStatus", "Preparer",
     "RealStages", "Source", "Stages",
 ]
 
@@ -153,6 +155,7 @@ class Preparer:
         """Scheduler loop, forever. Every demanded song gets a job at once; the gates enforce two
         downloads and one accelerator task at a time, in demand order."""
         probe = asyncio.create_task(self._probe())
+        backfill = asyncio.create_task(self._backfill(probe))
         try:
             while True:
                 await self._wake.wait()
@@ -165,12 +168,33 @@ class Preparer:
             for job in self._jobs.values():
                 job.cancel()
             probe.cancel()
-            await asyncio.gather(probe, *self._jobs.values(), return_exceptions=True)
+            backfill.cancel()
+            await asyncio.gather(probe, backfill, *self._jobs.values(), return_exceptions=True)
             await self._stages.stop()
 
     async def _probe(self) -> None:
         self._device = await self._stages.start()
         self._changed()
+
+    async def _backfill(self, probe: asyncio.Task[None]) -> None:
+        """Advanced lyrics matching for library songs prepared before it existed (technical spec "Songs already
+        in the library"). Once per song and matching version, whatever the switch says. It takes the accelerator
+        only when no demanded song wants it, and one song at a time, so a queued song waits at most one song."""
+        await asyncio.gather(probe, return_exceptions=True)
+        records = await asyncio.to_thread(self._library.newest, 1_000_000)
+        todo = [r for r in records if r.lyrics_source == "lrclib"
+                and _advanced_lyrics.needs_matching(self._library.root / r.meta.id)]
+        log.info("advanced lyrics matching: %d library songs to match", len(todo))
+        for rec in todo:
+            key = SongId(f"advanced:{rec.meta.id}")
+            try:
+                await self._stages.advanced_lyrics(rec.meta, SongNames(rec.artist_names, rec.alt_titles),
+                                                   self._library.root / rec.meta.id,
+                                                   lambda: self._accelerator.hold(key))
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("advanced lyrics matching of %s failed", rec.meta.id)
 
     async def _job(self, request: PrepRequest) -> None:
         song = request.song.id

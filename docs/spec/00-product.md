@@ -256,6 +256,45 @@ The user's words: allow users to show lyrics from a website directly on their de
 - If a site has no lyrics for the song, or is down, the app says so for that site and the other sites still work.
 - This feature is view only, on the singer's own device (decided 2026-11-14). The user's words: keep LRCLIB for the TV; this add-on should only be view-only lyrics on users' devices. The site's lyrics never change the TV's lyrics or the song's saved lyrics, and the TV's lyrics still come from LRCLIB.
 
+## Advanced lyrics matching (added 2026-11-14)
+
+The user's words: some song videos have a long intro before the song starts, sometimes with someone speaking or background sound. The video plays, the song only starts at 20 s, but the lyrics start to roll from 0 s. Sometimes the video is a live performance, or has a bridging drama scene in the middle of the song. Don't overwrite the current lyrics generation approach. Mark the new approach as "advanced lyrics matching" that we can enable, so we can switch back and forth, or dump it completely if we don't want it.
+
+### What the user sees today
+
+The lyrics start lighting up during the intro, stop on one word, and catch up when the real singing starts. Today's timing has to place every lyric word somewhere in the video, in LRCLIB's order. It has no way to say "nobody is singing this song here", so it puts early words on intro speech or noise.
+
+### What advanced lyrics matching does
+
+- Lyrics light up only while the song is actually sung. Intros, outros, spoken parts, drama scenes, and an artist talking to the crowd show no lit words.
+- The lyrics follow the video, not the album. In a live performance, a chorus sung three times shows three times, and a skipped verse is left out. Assumption: within a line, the words keep LRCLIB's order. Only whole lines can repeat, be skipped, or move.
+- During a break of 8 seconds or more, the TV clears the lyrics and shows "♪ intro" or "♪ break" with a countdown to the next line. Assumption: the 8-second length, and the next line appears 3 seconds before it is sung.
+- Where the app is unsure, for example a chorus the crowd sings while the artist is silent, the TV shows its best guess and lights the words as usual (decided 2026-11-14). Assumption: the TV does not mark these lines as guessed.
+- The words still come from LRCLIB. Songs with no LRCLIB lyrics keep today's transcribed lyrics and their "Lyrics may be wrong" mark. Assumption: they get no advanced version.
+
+### Switch it on and off
+
+- Preparation always makes both versions of the lyrics, the current one and the advanced one, whether the switch is on or off (decided 2026-11-14). The user's words: have 2 lyrics matching processed during the preparation so that it can be enabled or disabled while they are singing, and it can take effect immediately.
+- The switch can be flipped at any time, including in the middle of a song. It takes effect immediately: the TV changes to the other lyrics at the same place in the song, and the song keeps playing without a pause.
+- Advanced lyrics matching is off by default. Assumption: the switch applies to the whole app. It is on the control page and on the phone's now playing, and every screen shows its current state like the vocal and key settings. On the phone it sits beside the play button, so now playing still fits on one screen. For a song marked "Lyrics may be wrong", that mark shows there instead: the song has no advanced lyrics, so the switch would do nothing for it.
+- The current approach is never replaced. Every song keeps its current lyrics, and the advanced lyrics are saved beside them.
+- When the switch is on and a song has no advanced lyrics, the TV uses the current lyrics. This happens when advanced matching failed for that song, or the song has no LRCLIB lyrics.
+- Assumption: songs already in the library get advanced lyrics in the background, once, after any queued song that is still preparing. Until a song has them, the switch has no effect on that song.
+- Dumping the approach means deleting its own code and its saved files. Nothing else in the app changes.
+
+### What good looks like
+
+The user picks test videos: some with long intros, some with speaking in the intro, some live performances, and some with a drama scene mid-song. Someone marks by hand when lines are really sung. On those videos, advanced matching must meet all of these:
+
+- The first line after every intro or break starts within 0.5 s of when it is really sung.
+- Every line starts within 1 s of when it is really sung.
+- No word is lit for more than 1 s while nobody is singing the song.
+
+The same videos are also measured with the current approach, so the two can be compared.
+
 ## Open questions
 
-None. Decided 2026-11-12: favourites follow the browser, with the restore offer above. Region boxes use YouTube Music's charts and playlists. Two friends sharing one phone count as one singer. Decided 2026-11-14: the lyrics sites, and that site lyrics are view only on the singer's device while the TV keeps LRCLIB.
+- **Advanced lyrics matching (2026-11-14):** which songs make up the test set? The agent can suggest candidates from the library, but the user knows which videos showed the problem.
+- **Advanced lyrics matching (2026-11-14):** how much longer may preparing a song take? Measured: a median of 13 s more per song with the graphics card (technical spec, "Measured results (2026-11-14)"). The user will judge it in use.
+
+Decided 2026-11-12: favourites follow the browser, with the restore offer above. Region boxes use YouTube Music's charts and playlists. Two friends sharing one phone count as one singer. Decided 2026-11-14: the lyrics sites, and that site lyrics are view only on the singer's device while the TV keeps LRCLIB.

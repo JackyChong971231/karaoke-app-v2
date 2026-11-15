@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
 from karaoke.core import SongMeta
+from karaoke.songs.catalog import SongNames
 from karaoke.vocab import FailReason, PrepStage
 
 Lane = Literal["party", "import"]
@@ -56,6 +58,8 @@ class PrepFailed(Exception):
 
 
 Progress = Callable[[float], None]
+Gate = Callable[[], AbstractAsyncContextManager[None]]
+"""Holds the accelerator, at the lowest priority, for one library song's advanced lyrics matching."""
 
 
 class Stages:
@@ -67,7 +71,9 @@ class Stages:
       download   FromYouTube: video.mp4 + audio.src.  FromV1Files: video.mp4, instrumental.opus,
                  vocals.opus, vocals.wav (the v1 stems are converted, so no separate stage runs).
       separate   audio.src -> instrumental.opus, vocals.opus, vocals.wav
-      lyrics     vocals.wav -> lyrics.json (a karaoke.contract.LyricsDoc)
+      lyrics     vocals.wav -> lyrics.json (a karaoke.contract.LyricsDoc), and lyrics.advanced.json when
+                 advanced lyrics matching works
+      advanced_lyrics   an installed song folder -> lyrics.advanced.json, for songs prepared before it existed
     Raise PrepFailed for a failure with a known reason."""
 
     async def start(self) -> Device:
@@ -84,4 +90,7 @@ class Stages:
         raise NotImplementedError
 
     async def lyrics(self, song: SongMeta, into: Path, progress: Progress) -> None:
+        raise NotImplementedError
+
+    async def advanced_lyrics(self, song: SongMeta, names: SongNames, folder: Path, gate: Gate) -> None:
         raise NotImplementedError

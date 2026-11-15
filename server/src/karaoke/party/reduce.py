@@ -13,7 +13,7 @@ from karaoke.core import SongMeta
 from karaoke.party import fairness
 from karaoke.party.inputs import (
     Before, End, FillerPicked, Front, Hello, Input, MoveEntry, QueueSong, RemoveEntry, Rename, ResolveRestart,
-    SetAvOffset, SetKey, SetPaused, SetVocal, SetVocalOn, Skip, SongReady, StepKey, TrackEnded, TrackFailed,
+    SetAdvancedLyrics, SetAvOffset, SetKey, SetPaused, SetVocal, SetVocalOn, Skip, SongReady, StepKey, TrackEnded, TrackFailed,
     TvPresence,
 )
 from karaoke.party.model import (
@@ -136,6 +136,9 @@ def reduce(state: PartyState, inp: Input) -> Step:
             if not 0.0 <= seconds <= AV_OFFSET_MAX_S:
                 return _reject(state, "invalid_value")
             return _ok(replace(state, settings=replace(state.settings, av_offset_s=seconds)))
+
+        case SetAdvancedLyrics(_, on):
+            return _ok(replace(state, settings=replace(state.settings, advanced_lyrics=on)))
 
         case SongReady(song):
             if song in state.ready:

@@ -83,3 +83,12 @@ def lyrics_doc(transcribed: bool = False) -> c.LyricsDoc:
         _words(["Every", "word", "lights", "up", "in", "blue"], 6.2, 0.4),
         _words(["Last", "line", "of", "the", "song"], 8.6, 0.25),
     ])
+
+
+def advanced_lyrics_doc() -> c.LyricsDoc:
+    """lyrics.advanced.json for every fake song with LRCLIB lyrics: different words from lyrics_doc, so a test sees
+    the switch take effect, and an intro the TV shows as "♪ Intro" with a countdown until 3 s before the first line."""
+    return c.LyricsDoc(version=2, source="lrclib", language="en", lines=[
+        _words(["Advanced", "lyrics", "start", "late"], 6.0, 0.4),
+        _words(["Second", "advanced", "line"], 8.0, 0.3),
+    ], breaks=[c.LyricsBreak(start=0.0, end=6.0, kind="intro")])

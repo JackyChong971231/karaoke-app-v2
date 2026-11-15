@@ -1,12 +1,30 @@
 // Karaoke lyrics on the TV. Pure timing functions plus one DOM renderer driven by requestAnimationFrame.
 // Not React: per-word fills update 60 times a second through a CSS variable, with no re-render.
 
-import type { LyricsDoc, LyricsLine, LyricsWord } from "../wire/types";
+import type { LyricsBreak, LyricsDoc, LyricsLine, LyricsWord } from "../wire/types";
 
 /** How long a finished line stays highlighted before its slot moves on. From the prototype. */
 export const LINE_HOLD_S = 0.4;
 const FONT_VH = 6.2;
 const MAX_WIDTH_VW = 0.88;
+
+/** During a break the next line appears this long before it is sung. Technical spec "TV: breaks". */
+export const BREAK_LEAD_S = 3;
+
+/**
+ * The intro or mid-song break being shown at display time t, with the whole seconds left until its next line.
+ * Null outside breaks, in the last BREAK_LEAD_S before the next line, and for outros, which show nothing.
+ */
+export function activeBreak(
+  breaks: readonly LyricsBreak[] | null | undefined,
+  t: number,
+): { kind: "intro" | "break"; secondsLeft: number } | null {
+  for (const b of breaks ?? []) {
+    if (b.kind === "outro") continue;
+    if (t >= b.start && t < b.end - BREAK_LEAD_S) return { kind: b.kind, secondsLeft: Math.ceil(b.end - t) };
+  }
+  return null;
+}
 
 /** Index of the line being sung at display time t: the first line with t < end + hold. lines.length when done. */
 export function currentLine(lines: readonly LyricsLine[], t: number): number {
@@ -73,6 +91,8 @@ export function fitLines(lines: readonly LyricsLine[], width: (line: LyricsLine)
 export interface LyricsProbe {
   slots: { line: number | null; text: string; fills: number[] }[];
   lineCount: number;
+  breakText: string;
+  version: number | null;
 }
 
 interface SlotState {
@@ -86,8 +106,9 @@ export class LyricsRenderer {
   private doc: LyricsDoc | null = null;
   private lines: LyricsLine[] = [];
   private readonly slots: [SlotState, SlotState];
+  private breakShown = "";
 
-  constructor(els: [HTMLElement, HTMLElement]) {
+  constructor(els: [HTMLElement, HTMLElement], private readonly breakEl: HTMLElement) {
     this.slots = [
       { el: els[0], line: null, spans: [], fills: [] },
       { el: els[1], line: null, spans: [], fills: [] },
@@ -96,15 +117,28 @@ export class LyricsRenderer {
     addEventListener("resize", () => { this.setDoc(this.doc); });
   }
 
+  /** Swapping docs mid-song (the advanced lyrics switch) clears both slots; the next frame redraws them for now. */
   setDoc(doc: LyricsDoc | null): void {
+    if (doc === this.doc) return;
     this.doc = doc;
     this.lines = doc === null ? [] : this.fit(doc.lines);
     for (const s of this.slots) this.show(s, null);
+    this.showBreak("");
+  }
+
+  get current(): LyricsDoc | null {
+    return this.doc;
   }
 
   /** Draw for display time t (audible position plus the AV offset). */
   render(t: number): void {
     if (this.lines.length === 0) return;
+    const brk = activeBreak(this.doc?.breaks, t);
+    this.showBreak(brk === null ? "" : `♪ ${brk.kind === "intro" ? "Intro" : "Break"} · ${String(brk.secondsLeft)}`);
+    if (brk !== null) {
+      for (const s of this.slots) if (s.line !== null) this.show(s, null);
+      return;
+    }
     const cur = currentLine(this.lines, t);
     const wanted = slotLines(cur);
     this.slots.forEach((slot, i) => {
@@ -126,7 +160,16 @@ export class LyricsRenderer {
     return {
       slots: this.slots.map((s) => ({ line: s.line, text: s.el.textContent ?? "", fills: [...s.fills] })),
       lineCount: this.lines.length,
+      breakText: this.breakShown,
+      version: this.doc?.version ?? null,
     };
+  }
+
+  private showBreak(text: string): void {
+    if (text === this.breakShown) return;
+    this.breakShown = text;
+    this.breakEl.textContent = text;
+    this.breakEl.hidden = text === "";
   }
 
   private show(slot: SlotState, index: number | null): void {
