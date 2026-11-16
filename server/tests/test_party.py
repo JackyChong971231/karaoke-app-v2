@@ -7,6 +7,7 @@ The cases are the spec (00-product.md "Queue fairness", "Restart the app", "Fill
 from __future__ import annotations
 
 import dataclasses
+import random
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -82,33 +83,184 @@ def test_each_song_keeps_the_name_it_was_queued_with_and_fairness_ignores_names(
     assert [e.singer_name for e in durable(s).queue] == ["Amy", "B", "Not Amy"]
 
 
-def test_fairness_history_example() -> None:
-    """A has sung 3 tonight; D joins. D's round 1 goes before A's round 4."""
-    s = party()
-    for n in range(3):
-        s = run(s, SongReady(song(f"a{n}").id), QueueSong(A, song(f"a{n}")))
-        s = run(s, TrackEnded(playing(s).play_id))
-    assert s.fairness.sung[A] == 3 and isinstance(s.now, Idle)
-    s = queue_as(s, "A", "D")
-    assert order(s) == "DA"
-    assert [e.round for e in s.queue] == [1, 4]
+def sing(state: PartyState, *singers_in_order: str) -> PartyState:
+    """Each letter sings one song start to finish (queued ready, played, ended)."""
+    for letter in singers_in_order:
+        m = song(f"sung{state.next_entry_id}")
+        state = run(state, SongReady(m.id), QueueSong(SingerId(letter), m))
+        state = run(state, TrackEnded(playing(state).play_id))
+    return state
 
 
-def test_song_counts_as_sung_when_it_starts() -> None:
+def test_screenshot_example_2026_11_15_history_earns_no_extra_turns() -> None:
+    """Jacky sang 4, Beauty 3, K 1, ooo 2. Then J K K B O O K B queue: a plain rotation, never K K."""
+    s = run(initial_state(None), *(Hello(SingerId(x), x) for x in "JBKO"), TvPresence(True))
+    s = sing(s, *"JBKOJBOJBJ")
+    assert isinstance(s.now, Idle) and s.queue == ()
+    s = queue_as(s, *"JKKBOOKB")
+    assert order(s) == "KBOJKBOK", "Jacky sang the last song, so Jacky waits behind the others"
+
+
+def test_singer_of_the_song_playing_now_goes_to_the_back() -> None:
     s = run(party(), SongReady(song("x").id), QueueSong(A, song("x")))
-    assert s.fairness.sung == {A: 1}
-    s = queue_as(s, "B", "A")
+    s = queue_as(s, "A", "B")
+    assert order(s) == "BA", "A is singing now, so A has had this turn"
+    s = queue_as(s, "B", "C")
+    assert order(s) == "BCAB"
+
+
+def test_removing_a_song_rebuilds_the_rotation() -> None:
+    s = queue_as(party(), *"ABCABC")
+    s = run(s, RemoveEntry(A, s.queue[1].id))
+    assert order(s) == "ACBAC", "B, whose first song left, now waits behind C"
+    s = queue_as(party(), *"AAB")
+    assert order(s) == "ABA"
+    s = run(s, RemoveEntry(B, s.queue[1].id))
+    assert order(s) == "AA", "with only one singer left there is nobody to take turns with"
+
+
+def test_a_song_still_preparing_does_not_leave_its_singer_back_to_back() -> None:
+    """K1 is still preparing, so B's ready song plays first. K1 keeps the front, and K's second song does not
+    follow it straight away: the rotation is rebuilt as B's song leaves the queue."""
+    s = queue_as(party(), *"ABA")
+    b = s.queue[1]
+    s = run(s, QueueSong(C, song("c")))
+    assert order(s) == "ABCA"
+    s = run(s, SongReady(b.song.id))
+    assert playing(s).origin == FromQueue(b)
+    assert order(s) == "ACA"
+
+
+def test_a_singers_ready_second_song_takes_their_turn_and_the_first_waits_a_round() -> None:
+    """Found by the 5-phone party: K's first song is preparing, K's second is ready. K sings the ready one,
+    and the one still preparing goes behind everyone else, never straight after K."""
+    k1, b1, k2 = song("k1"), song("b1"), song("k2")
+    s = run(party(), QueueSong(A, k1), QueueSong(B, b1), QueueSong(A, k2))
+    assert order(s) == "ABA"
+    s = run(s, SongReady(k2.id))
+    assert playing(s).song == k2
+    assert order(s) == "BA", "A just sang, so A's song still preparing waits behind B"
+
+
+def test_a_turn_belongs_to_the_singer_not_to_one_song() -> None:
+    """User, 2026-11-15: a singer whose song is still preparing goes first next. If one of their later songs is
+    ready, that one takes their turn, rather than someone else singing again."""
+    d1, m1, j1, m2 = song("d1"), song("m1"), song("j1"), song("m2")
+    s = run(party(), SongReady(d1.id), QueueSong(D, d1))
+    s = run(s, QueueSong(A, m1), QueueSong(B, j1), QueueSong(A, m2), SongReady(j1.id), SongReady(m2.id))
+    assert order(s) == "ABA"
+    s = run(s, TrackEnded(playing(s).play_id))
+    assert playing(s).song == m2, "A is first in line and has a ready song, so B does not jump ahead"
     assert order(s) == "BA"
-    assert [e.round for e in s.queue] == [1, 2]
 
 
-def test_manual_move_is_kept_and_new_songs_are_still_placed_fairly() -> None:
+def test_a_singer_with_nothing_ready_stays_first_in_line() -> None:
+    a1, b1, c1, a2 = song("a1"), song("b1"), song("c1"), song("a2")
+    s = run(party(), QueueSong(A, a1), QueueSong(B, b1), QueueSong(C, c1))
+    s = run(s, SongReady(b1.id), SongReady(c1.id))
+    assert playing(s).song == b1 and order(s) == "AC"
+    s = run(s, TrackEnded(playing(s).play_id))
+    assert playing(s).song == c1 and order(s) == "A"
+    s = run(s, QueueSong(B, song("b2")), SongReady(a1.id), TrackEnded(playing(s).play_id))
+    assert playing(s).song == a1, "A waited two turns for their download and sings as soon as it is ready"
+
+
+def test_random_nights_everyone_sings_equally() -> None:
+    """Five phones, one queueing 2 at a time all night, songs taking random time to prepare. Whenever X starts a
+    song: X did not sing the song before it while anyone else had a song queued, and nobody else had a ready
+    song waiting, unsung, since X's previous song started."""
+    singers = [SingerId(x) for x in "JKBOM"]
+    for seed in range(40):
+        rnd = random.Random(seed)
+        s = run(initial_state(None), *(Hello(x, x) for x in singers), TvPresence(True))
+        preparing: dict[SongId, int] = {}
+        ready_since: dict[EntryId, int] = {}
+        last_start: dict[SingerId, int] = {}
+        last_play = None
+        previous: SingerId | None = None
+
+        def step(state: PartyState, inp: Input) -> PartyState:
+            nonlocal previous
+            after = run(state, inp)
+            if isinstance(after.now, Playing) and isinstance(after.now.origin, FromQueue) and after.now != state.now:
+                x = after.now.origin.entry.singer
+                assert x != previous or all(e.singer == x for e in after.queue), (seed, "twice in a row", x)
+                previous = x
+            return after
+
+        for t in range(300):
+            for sid in list(preparing):
+                preparing[sid] -= 1
+                if preparing[sid] <= 0:
+                    del preparing[sid]
+                    s = step(s, SongReady(sid))
+            r = rnd.random()
+            if r < 0.45:
+                who = singers[0] if r < 0.25 else rnd.choice(singers[1:])
+                for _ in range(2 if who == singers[0] else 1):
+                    m = song(f"{seed}-{s.next_entry_id}")
+                    s = step(s, QueueSong(who, m))
+                    preparing[m.id] = rnd.choice((0, 1, 3, 8))
+            elif r < 0.75 and isinstance(s.now, Playing):
+                s = step(s, TrackEnded(s.now.play_id))
+            ready_since.update({e.id: t for e in s.queue if e.song.id in s.ready and e.id not in ready_since})
+            if isinstance(s.now, Playing) and isinstance(s.now.origin, FromQueue) and s.now.play_id != last_play:
+                last_play, x = s.now.play_id, s.now.origin.entry.singer
+                if x in last_start:
+                    skipped = [y.singer for y in s.queue if y.singer != x and ready_since.get(y.id, t) < last_start[x]
+                               and last_start.get(y.singer, -1) < last_start[x]]
+                    assert not skipped, (seed, t, x, skipped)
+                last_start[x] = t
+
+
+def test_the_last_singer_waits_rather_than_sing_twice_in_a_row() -> None:
+    """User, 2026-11-15, example 10: "just wait, keep it simple". J1 ends; only J2 is ready; K1 and B1 are still
+    preparing. A filler plays until K1 is ready, then K, then J2 (B1 still preparing), then Beauty."""
+    j1, k1, b1, j2 = song("j1"), song("k1"), song("b1"), song("j2")
+    s = run(party(), SongReady(j1.id), QueueSong(A, j1), QueueSong(B, k1), QueueSong(C, b1),
+            SongReady(j2.id), QueueSong(A, j2))
+    s = run(s, TrackEnded(playing(s).play_id))
+    assert isinstance(s.now, Idle) and order(s) == "BCA"
+    req = filler_request(s)
+    assert req is not None, "the TV plays a filler while it waits"
+    s = run(s, FillerPicked(req.token, song("f")), SongReady(k1.id))
+    assert playing(s).origin == Filler(), "a ready song never cuts a filler short"
+    s = run(s, TrackEnded(playing(s).play_id))
+    assert playing(s).song == k1
+    s = run(s, TrackEnded(playing(s).play_id))
+    assert playing(s).song == j2, "J did not sing last, so J2 may go ahead of B1, which is still preparing"
+    s = run(s, SongReady(b1.id), TrackEnded(playing(s).play_id))
+    assert playing(s).song == b1
+
+
+def test_while_the_tv_waits_the_queue_shows_the_last_singer_last() -> None:
+    """Found in review: J1 ends and the TV waits for K1. Beauty adds a song. The phones must show it before J2,
+    because Beauty really does sing before Jacky."""
+    j1, k1, j2, b1 = song("j1"), song("k1"), song("j2"), song("b1")
+    s = run(party(), SongReady(j1.id), QueueSong(A, j1), QueueSong(B, k1), SongReady(j2.id), QueueSong(A, j2))
+    s = run(s, TrackEnded(playing(s).play_id))
+    assert isinstance(s.now, Idle) and order(s) == "BA"
+    s = run(s, QueueSong(C, b1))
+    assert order(s) == "BCA"
+    s = run(s, SongReady(b1.id))
+    assert playing(s).song == b1 and order(s) == "BA"
+
+
+def test_a_singer_alone_in_the_queue_keeps_singing() -> None:
+    s = run(party(), SongReady(song("1").id), SongReady(song("2").id), QueueSong(A, song("1")), QueueSong(A, song("2")))
+    s = run(s, TrackEnded(playing(s).play_id))
+    assert playing(s).song == song("2"), "nobody else is waiting, so there is no one to wait for"
+
+
+def test_move_to_front_survives_the_next_song() -> None:
+    """v1: a song moved to the front leads the rotation, so the next add keeps it first."""
     s = queue_as(party(), *"ABB")
     last_b = s.queue[-1].id
     s = run(s, MoveEntry(C, last_b, Front()))
     assert order(s) == "BAB"
     s = queue_as(s, "C")
-    assert order(s) == "BABC", "C1 goes right after the last entry with a smaller key (A1), moves are not undone"
+    assert order(s) == "BACB"
+    assert s.queue[0].id == last_b
 
 
 def test_move_before_and_end_and_unknown_entry() -> None:
@@ -180,7 +332,7 @@ def test_playback_setters_are_absolute_and_validated() -> None:
     assert reduce(party(), Skip(A, PlayId(1))).outcome == Rejected("nothing_playing")
 
 
-def test_seek_restarts_or_jumps_without_touching_the_queue_or_fairness() -> None:
+def test_seek_restarts_or_jumps_without_touching_the_queue() -> None:
     """Spec "Move around in the song": restart, +5 s, and the progress bar keep the song, queue, key, and count."""
     s = run(party(), SongReady(song("0").id), QueueSong(A, song("0")), QueueSong(B, song("q")))
     p = playing(s).play_id
@@ -189,7 +341,7 @@ def test_seek_restarts_or_jumps_without_touching_the_queue_or_fairness() -> None
     s = run(s, Seek(B, p, 42.5), Seek(C, p, 0.0), Seek(C, p, 0.0))
     assert playing(s).seek == SeekTo(3, 0.0), "each seek is new, even to the same place"
     assert playing(s).play_id == p and playing(s).semitones == 2 and playing(s).paused
-    assert s.queue == before.queue and s.fairness == before.fairness and s.next_play_id == before.next_play_id
+    assert s.queue == before.queue and s.next_play_id == before.next_play_id
     assert playing(run(s, Seek(A, p, 999.0))).seek == SeekTo(4, 199.0), "past the end lands 1 s before it"
     assert playing(run(s, Seek(A, p, -3.0))).seek == SeekTo(4, 0.0)
     assert reduce(s, Seek(A, p, float("nan"))).outcome == Rejected("invalid_value")
@@ -259,7 +411,6 @@ def test_filler_plays_when_idle_and_is_not_interrupted_by_a_ready_song() -> None
     s = run(s, QueueSong(A, song("0")), SongReady(song("0").id))
     assert playing(s).origin == Filler(), "a newly ready song does not interrupt the filler"
     assert order(s) == "A"
-    assert s.fairness.sung == {}, "a filler never counts toward fairness"
     s = run(s, Skip(B, playing(s).play_id))
     assert playing(s).song == song("0") and isinstance(playing(s).origin, FromQueue)
 
@@ -299,16 +450,15 @@ def saved(*letters: str) -> DurableSnapshot:
     )
 
 
-def test_restart_keep_keeps_order_and_resets_fairness() -> None:
-    """Saved A B B; keep -> same order, rounds renumbered 1,1,2; a new C song goes after B1 (round 1, joined 3rd)."""
+def test_restart_keep_keeps_order_until_the_next_song() -> None:
+    """Saved A B B; keep -> same order; a new C song rebuilds the rotation: A B C B."""
     s = initial_state(saved("A", "B", "B"))
     assert isinstance(s.phase, AwaitingRestartChoice) and s.queue == ()
     assert s.settings == Settings(vocal_level=0.3, av_offset_s=0.1)
     s = run(s, Hello(C, "Cat"))
     assert reduce(s, QueueSong(C, song("c"))).outcome == Rejected("awaiting_restart_choice")
     s = run(s, ResolveRestart(keep=True))
-    assert order(s) == "ABB" and [e.round for e in s.queue] == [1, 1, 2]
-    assert s.fairness.join_order == (A, B) and s.fairness.sung == {}
+    assert order(s) == "ABB"
     assert s.singers[A] == "nameA" and s.singers[C] == "Cat"
     s = queue_as(s, "C")
     assert order(s) == "ABCB"
@@ -332,14 +482,13 @@ def test_crash_during_prompt_keeps_the_offer() -> None:
     assert durable(initial_state(snap)) == snap
 
 
-def test_durable_snapshot_has_no_fairness() -> None:
+def test_durable_snapshot_is_queue_and_settings_only() -> None:
     assert {f.name for f in dataclasses.fields(DurableSnapshot)} == {"queue", "settings"}
     s = run(party(), SongReady(song("0").id), QueueSong(A, song("0")))
     s = queue_as(s, "B")
     snap = durable(s)
     assert [e.singer for e in snap.queue] == [A, B], "the now-playing queued song is saved at the front"
     restarted = run(initial_state(snap), ResolveRestart(keep=True))
-    assert restarted.fairness.sung == {}
 
 
 def test_preparation_demand_is_queue_order_deduplicated() -> None:
@@ -388,34 +537,37 @@ def check_invariants(s: PartyState) -> None:
     assert len(set(all_ids)) == len(all_ids), "entry ids are unique"
     assert all(i < s.next_entry_id for i in all_ids)
     assert playing_entry is None or playing_entry not in s.queue, "now-playing entry is not in the queue"
-    assert all(e.singer in s.fairness.join_order for e in s.queue), "every queued singer has joined"
     if isinstance(s.phase, AwaitingRestartChoice):
         assert s.queue == () and isinstance(s.now, Idle)
     if isinstance(s.phase, Running) and isinstance(s.now, Idle):
-        assert not any(e.song.id in s.ready for e in s.queue), "an idle TV never leaves a ready song waiting"
+        assert not any(e.song.id in s.ready and e.singer != s.last_singer for e in s.queue), \
+            "an idle TV only waits when the one ready song is the last singer's"
     if isinstance(s.now, Playing):
         assert s.now.play_id < s.next_play_id
 
 
-def relative_order_kept(before: PartyState, after: PartyState) -> bool:
-    old = [e.id for e in before.queue]
-    new = [e.id for e in after.queue]
-    return [i for i in old if i in new] == [i for i in new if i in old]
+def no_avoidable_back_to_back(s: PartyState) -> bool:
+    """A singer appears twice in a row only when nobody else has a song after them."""
+    singing = s.now.origin.entry.singer if isinstance(s.now, Playing) and isinstance(s.now.origin, FromQueue) else None
+    q = [singing, *(e.singer for e in s.queue)] if singing else [e.singer for e in s.queue]
+    return all(q[i] != q[i + 1] or all(x == q[i] for x in q[i + 2:]) for i in range(len(q) - 1))
 
 
 @settings(max_examples=300, deadline=None)
 @given(starts, st.lists(inputs, max_size=40))
 def test_any_input_sequence_keeps_invariants(start: DurableSnapshot | None, seq: list[Input]) -> None:
-    """Entry ids unique; now-playing entry not in queue; every queued singer joined; rejected inputs leave
-    state identical; only MoveEntry reorders existing entries; a double skip skips one song."""
+    """Entry ids unique; now-playing entry not in queue; rejected inputs leave state identical; whenever a song
+    joins or leaves the queue (outside a restart) the queue is a rotation with no avoidable back-to-back singer;
+    a double skip skips one song."""
     s = initial_state(start)
     check_invariants(s)
     for inp in seq:
         step = reduce(s, inp)
         if isinstance(step.outcome, Rejected):
             assert step.state is s
-        if not isinstance(inp, MoveEntry):
-            assert relative_order_kept(s, step.state)
+        changed = {e.id for e in s.queue} != {e.id for e in step.state.queue}
+        if changed and not isinstance(inp, ResolveRestart):
+            assert no_avoidable_back_to_back(step.state), (inp, [e.singer for e in step.state.queue])
         s = step.state
         check_invariants(s)
         if isinstance(s.now, Playing):

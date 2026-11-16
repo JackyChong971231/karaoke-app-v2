@@ -1,66 +1,49 @@
-"""Turn-taking rules. Pure. Private to karaoke.party (called only from reduce.py)."""
+"""Turn-taking rule (v1's rotation). Pure. Private to karaoke.party (called only from reduce.py)."""
 
 from __future__ import annotations
 
-from karaoke.core import SingerId
-from karaoke.party.model import EntryId, Fairness, QueueEntry, SavedEntry
+from collections.abc import Set
+
+from karaoke.core import SingerId, SongId
+from karaoke.party.model import QueueEntry
 
 
-def next_round(fairness: Fairness, queue: tuple[QueueEntry, ...], singer: SingerId) -> int:
-    """Round for a singer's new song: songs started tonight + songs already queued + 1.
+def next_up(queue: tuple[QueueEntry, ...], ready: Set[SongId], last: SingerId | None) -> QueueEntry | None:
+    """The song to play next, or None to wait (a filler plays). A turn belongs to a singer, not to one song.
 
-    The now-playing queued song is already counted in `fairness.sung` (counted at start)
-    and is no longer in `queue`, so it is neither missing nor double counted.
+    Walk the singers in queue order. The first singer with any ready song sings their earliest ready song, even
+    if their first song is still preparing. A singer with nothing ready is passed over and stays first in line.
+    `last`, who sang the most recent queued song, never sings twice in a row while anyone else has a song
+    queued: the TV waits for the others instead (user, 2026-11-16: "just wait, keep it simple").
     """
-    queued = sum(1 for e in queue if e.singer == singer)
-    return fairness.sung.get(singer, 0) + queued + 1
+    others_waiting = any(e.singer != last for e in queue)
+    passed: set[SingerId] = set()
+    for e in queue:
+        if e.singer in passed or (e.singer == last and others_waiting):
+            continue
+        passed.add(e.singer)
+        mine = next((x for x in queue if x.singer == e.singer and x.song.id in ready), None)
+        if mine is not None:
+            return mine
+    return None
 
 
-def with_joined(fairness: Fairness, singer: SingerId) -> Fairness:
-    """Append `singer` to join_order if this is their first song tonight. Idempotent."""
-    if singer in fairness.join_order:
-        return fairness
-    return Fairness(join_order=(*fairness.join_order, singer), sung=fairness.sung)
+def rotated(queue: tuple[QueueEntry, ...], last: SingerId | None) -> tuple[QueueEntry, ...]:
+    """Rebuild the queue as a rotation: one song per singer per turn.
 
+    Singers take turns in the order they first appear in `queue`, except `last` (who sang the most recent queued
+    song, possibly still singing it), who has just had a turn and goes last. Each singer's songs keep the order
+    they have in `queue`. Nothing else counts: songs sung earlier tonight earn no extra turns, so nobody catches
+    up back to back.
 
-def insert_fairly(queue: tuple[QueueEntry, ...], entry: QueueEntry, join_order: tuple[SingerId, ...]) -> tuple[QueueEntry, ...]:
-    """Place a new entry right after the LAST entry whose (round, join index) is smaller.
-
-    The whole queue is scanned, not a sorted prefix, because manual moves mean the queue need not be
-    sorted. Existing entries keep their relative order.
-
-    Worked example from the product spec (join order A, B, C):
-        A1 B1 B2 B3 B4
-        A2 (2,0)  last smaller is B1           -> A1 B1 A2 B2 B3 B4
-        C1 (1,2)  last smaller is B1           -> A1 B1 C1 A2 B2 B3 B4
-        C2 (2,2)  last smaller is B2           -> A1 B1 C1 A2 B2 C2 B3 B4
+    User example (00-product.md): A B B B B A C  ->  A B C A B B B
     """
-    rank = {singer: i for i, singer in enumerate(join_order)}
-
-    def key(e: QueueEntry) -> tuple[int, int]:
-        return (e.round, rank[e.singer])
-
-    new_key = key(entry)
-    pos = 0
-    for i, e in enumerate(queue):
-        if key(e) < new_key:
-            pos = i + 1
-    return (*queue[:pos], entry, *queue[pos:])
-
-
-def renumber_kept(offer: tuple[SavedEntry, ...], first_entry_id: EntryId) -> tuple[tuple[QueueEntry, ...], Fairness]:
-    """Turn a kept queue into tonight's queue "as if the night had just started".
-
-    Order is preserved exactly. Join order and rounds are rebuilt from that order, so a new singer's
-    first song lands among the kept round-1 songs.
-    """
-    join_order: list[SingerId] = []
-    counts: dict[SingerId, int] = {}
-    entries: list[QueueEntry] = []
-    for i, saved in enumerate(offer):
-        if saved.singer not in counts:
-            join_order.append(saved.singer)
-        counts[saved.singer] = counts.get(saved.singer, 0) + 1
-        entries.append(QueueEntry(EntryId(first_entry_id + i), saved.song, saved.singer, counts[saved.singer],
-                                  saved.singer_name))
-    return tuple(entries), Fairness(join_order=tuple(join_order), sung={})
+    by_singer: dict[SingerId, list[QueueEntry]] = {}
+    for e in queue:
+        by_singer.setdefault(e.singer, []).append(e)
+    if last in by_singer:
+        by_singer[last] = by_singer.pop(last)
+    out: list[QueueEntry] = []
+    for turn in range(max((len(songs) for songs in by_singer.values()), default=0)):
+        out.extend(songs[turn] for songs in by_singer.values() if turn < len(songs))
+    return tuple(out)

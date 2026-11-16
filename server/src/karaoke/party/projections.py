@@ -13,6 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from karaoke.core import SongId, SongMeta
+from karaoke.party import fairness
 from karaoke.party.model import (
     AwaitingRestartChoice, DurableSnapshot, FromQueue, Idle, PartyState, Playing, PlayId, QueueEntry, Running,
     SavedEntry,
@@ -21,7 +22,7 @@ from karaoke.party.model import (
 
 def durable(state: PartyState) -> DurableSnapshot:
     """What survives a restart: the unanswered offer, or the now-playing queued entry plus the live queue.
-    Fillers are never saved. Fairness is never saved (the type has no field for it)."""
+    Fillers are never saved. Turn order is never saved: it is rebuilt from the queue."""
     if isinstance(state.phase, AwaitingRestartChoice):
         return DurableSnapshot(queue=state.phase.offer, settings=state.settings)
     entries: tuple[QueueEntry, ...] = state.queue
@@ -58,14 +59,15 @@ class FillerRequest:
 
 
 def filler_request(state: PartyState) -> FillerRequest | None:
-    """Non-None iff the TV is connected, phase is Running, now is Idle, and no queue entry is ready.
+    """Non-None iff the TV is connected, phase is Running, now is Idle, and no queued song may play yet
+    (none is ready, or only the last singer's, who must wait for the others: fairness.next_up).
 
     The TV-connected condition keeps a filler from starting before the TV page opens; otherwise the first
     queued song of the night would wait behind a filler that nobody saw start.
     """
     if not (state.tv_connected and isinstance(state.phase, Running) and isinstance(state.now, Idle)):
         return None
-    if any(e.song.id in state.ready for e in state.queue):
+    if fairness.next_up(state.queue, state.ready, state.last_singer) is not None:
         return None
     avoid = frozenset(state.recent_fillers) | {e.song.id for e in state.queue}
     return FillerRequest(token=state.next_play_id, avoid=avoid, recent=state.recent_fillers)

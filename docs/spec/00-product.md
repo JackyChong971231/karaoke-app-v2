@@ -188,33 +188,49 @@ When the queue is empty, the TV plays random library songs with video, sound, an
 - Preparation starts the moment a song is queued, not when its turn comes.
 - Preparation gets the music video, separates the backing track from the vocals, and produces lyrics with a time for every word.
 - A prepared song is saved on the laptop. Next time it is queued, it is ready at once.
-- If a song is not ready when its turn comes, the next ready song plays. The unready song keeps its place at the front.
+- If a song is not ready when its turn comes, the next singer in line with a ready song sings, but never the singer who just sang. If nobody else has a ready song, a filler plays. The singer whose song is still preparing stays first in line and sings as soon as it is ready (see "Queue fairness").
 - When the online song source changes and downloads break, the app updates its download tool and retries without the user doing anything.
 - Every library song has a proper title and artist, not the video title or channel name. The same artist is grouped as one, whatever language the name is written in.
 
 ## Queue fairness
 
-The queue takes turns between singers, so no singer can hold the microphone by queueing fast.
+The queue takes turns between singers, so everyone sings equally and no singer can hold the microphone by queueing fast.
 
-- "Tonight" means since the app last started. A restart resets every singer's count and the join order.
-- Each song gets a round number. A singer's first song tonight is round 1, their second is round 2, and so on. Songs already sung tonight count.
-- Within a round, singers go in the order they first joined tonight.
-- A new song is inserted at its fair position. Songs already in the queue keep their order.
-- A manual reorder by any singer stays in place. Fairness applies only to where new songs go in.
+The user's words, 2026-11-15 and 2026-11-16: the old repo has a good approach, apply that approach instead. Every time I add a song it goes to the start of the queue, and if I add 2 songs in a row, both go ahead of the other songs. When a preparing song is skipped, that singer should be first on the next one. The ultimate goal is to have everyone singing equally, not having some people always singing and keeping the others waiting. When only the singer who just sang has a ready song, just wait, keep it simple.
+
+Why it changed: the earlier rule gave a singer who had sung fewer songs tonight extra turns to catch up, and those turns sat back to back in the queue (the user's screenshots, 2026-11-15). The rule is now v1's rotation.
+
+### Rotation
+
+- Singers take turns, one song each per turn, in the order they first appear in the queue as it stands. Each singer's songs play in the order that singer queued them.
+- Songs already sung tonight do not count. Only the songs in the queue now decide the order.
+- A new song goes to the back of the current turn, never ahead of singers already waiting. Two songs added in a row go into two different turns.
+- The singer who sang last goes to the back of the rotation, because they just had their turn. This holds while they sing and after, until someone else sings.
+- The rotation is rebuilt every time a song is added, removed, or starts playing. Assumption: v1 rebuilt only on add and remove. v2 also rebuilds on start, because it can play a later ready song while an earlier one is still preparing.
+- A manual move is applied as asked. Assumption, as in v1: the next rebuild can undo it. A song moved to the front stays first, because its singer then leads the rotation. A song moved anywhere else can be pulled back into its rotation place.
+- Fairness counts by phone, not by name (see "One phone is one singer").
+
+### Songs still preparing
+
+- A turn belongs to a singer, not to one song. When a singer's turn comes and their first song is still preparing, their next ready song takes the turn.
+- If none of their songs is ready, the next singer in line with a ready song sings, and the waiting singer stays first in line. They sing as soon as a song of theirs is ready.
+- Nobody sings two songs in a row while anyone else has a song in the queue (decided 2026-11-16). When the only ready song belongs to the singer who just sang, the TV waits and a filler plays until another singer's song is ready. A singer alone in the queue keeps singing.
+
+### Examples
 
 Example from the user. Songs are queued in the order A, B, B, B, B, A, C. The queue becomes A, B, C, A, B, B, B. When C queues a second song, the queue becomes A, B, C, A, B, C, B, B.
 
-Example with history. A has sung 3 songs tonight and D joins. D's first song is round 1 and A's next song is round 4, so D sings first.
+Example from the user, 2026-11-12. A has 2 songs queued: A, A. B queues a song, and it goes after A's first song: A, B, A. A queues another, and it goes to the back: A, B, A, A. C queues a song, and it goes after B: A, B, C, A, A.
 
-Example from the user, 2026-11-12, to be proven by a test. A has 2 songs queued: A, A. B queues a song, and it goes after A's first song: A, B, A. A queues another, and it goes to the back: A, B, A, A. C queues a song, and it goes after B: A, B, C, A, A.
+Example from the user's screenshots, 2026-11-15. Jacky has sung 4 songs tonight, Beauty 3, K 1, and ooo 2. Then J, K, K, B, O, O, K, B queue. Jacky sang the last song, so Jacky goes behind the others: the queue becomes K, B, O, J, K, B, O, K.
 
-- Added 2026-11-12: the user reported that 防咪霸 does not always work. The fairness rule above is unchanged. The fix is to prove it with the user's example and to count by phone, not by name (see "One phone is one singer").
+Example 10 from the review, decided 2026-11-16. Jacky's J1 ends. K1 and B1 are still preparing and only J2 is ready. A filler plays. K1 becomes ready and K sings. B1 is still preparing, so J2 plays. Then Beauty sings B1.
 
 ### Restart the app
 
 - On start, if the last session left songs in the queue, the app asks whether to keep that queue or start a new one.
 - Assumption: the question shows on the TV and on every connected phone. The first answer wins.
-- A kept queue keeps its order. Counts and join order still reset, so new songs are placed as if the night had just started.
+- A kept queue keeps its order until the next song is added, removed, or starts, which rebuilds the rotation.
 
 ## Song library
 

@@ -18,6 +18,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -155,11 +156,11 @@ async def party(url: str, log: Callable[[str], None]) -> None:
 
     v = await amy.until(lambda v: v["now"]["playId"] != filler["playId"])
     now = v["now"]
-    log(f"now playing: {now['song']['title']!r} by {now['singerName']} (first READY entry; unready ones keep the front)")
+    log(f"now playing: {now['song']['title']!r} by {now['singerName']} (first READY entry; Amy has had her turn)")
     log(f"queue after: {letters(v)}  readiness: {[e['readiness'].get('stage', 'ready') for e in v['queue']]}")
-    assert now["song"]["title"] == "Night Drive" and now["singerName"] == "Amy" and letters(v) == "ABBBB"
+    assert now["song"]["title"] == "Night Drive" and now["singerName"] == "Amy" and letters(v) == "BABBB"
     tv_view = await tv.until(lambda t: t["play"] and t["play"]["playId"] == now["playId"])
-    assert tv_view["upNext"]["singerName"] == "Amy"
+    assert tv_view["upNext"]["singerName"] == "Ben"
 
     await tv.ws.send(json.dumps({"kind": "clock", "playId": now["playId"], "positionS": 4.25, "paused": False}))
     await asyncio.wait_for(_until(lambda: amy.clock is not None and ben.clock is not None), 5)
@@ -167,12 +168,12 @@ async def party(url: str, log: Callable[[str], None]) -> None:
     log(f"TV clock relayed to phones: positionS={amy.clock['positionS']}")
 
     v = await amy.until(lambda v: v["queue"][0]["readiness"]["kind"] == "ready", timeout=30)
-    log(f"Amy's first song finished preparing: {v['queue'][0]['song']['title']!r} is ready at the front")
+    log(f"Ben's first song finished preparing: {v['queue'][0]['song']['title']!r} is ready at the front")
     ended = await tv.send({"kind": "trackEnded", "playId": now["playId"]}, envelope="tvCommand")
     assert ended == {"kind": "accepted"}
     v = await amy.until(lambda v: v["now"]["playId"] == now["playId"] + 1)
     log(f"TV reports track ended -> now playing {v['now']['song']['title']!r} by {v['now']['singerName']}")
-    assert v["now"]["song"]["title"] == "Fake Song One" and v["now"]["singerName"] == "Amy"
+    assert v["now"]["song"]["title"] == "Second Fake Hit" and v["now"]["singerName"] == "Ben"
     late = await tv.send({"kind": "trackEnded", "playId": now["playId"]}, envelope="tvCommand")
     assert late == {"kind": "rejected", "reason": "stale_play"}
 
@@ -261,7 +262,113 @@ def say(line: str) -> None:
 def test_party_over_the_wire(server: str) -> None:
     asyncio.run(party(server, say))
     state = get(f"{server}/test/state")
-    assert state["party"]["fairness"]["sung"] == {"net:amy": 2}
+    assert "fairness" not in state["party"], "turn order is rebuilt from the queue, never stored"
+
+
+def back_to_back(view: dict[str, Any], phone_of: dict[str, str]) -> list[str]:
+    """Places where one phone has two songs in a row while another phone still has a song waiting after them.
+    The song playing now counts as the first in line. `phone_of` maps a singer name to its phone."""
+    singing = view["now"]["singerName"] if view["now"] else None
+    q = [e["singerId"] for e in view["queue"]]
+    names = [e["singerName"] for e in view["queue"]]
+    if singing:
+        q, names = [phone_of[singing], *q], [f"{singing} (singing)", *names]
+    return [f"{names[i]} at {i + 1},{i + 2}" for i in range(len(q) - 1)
+            if q[i] == q[i + 1] and any(x != q[i] for x in q[i + 2:])]
+
+
+async def five_phone_party(url: str, log: Callable[[str], None]) -> None:
+    """Spec "Queue fairness" (2026-11-15, v1's rotation): however songs are added, removed, moved, or played,
+    the queue never puts one phone twice in a row while another phone is waiting."""
+    tv = await Client.open(url, "tv", {"kind": "tvHello"})
+    phones = {n: await Client.open(url, n, {"kind": "phoneHello", "browserId": f"b-{n}", "name": n})
+              for n in ("Jacky", "K", "Beauty", "ooo")}
+    ooo_tab = await Client.open(url, "ooo-tab", {"kind": "phoneHello", "browserId": "b-tab", "name": "ooo2"},
+                                device="ooo")
+    j, k, b, o = phones["Jacky"], phones["K"], phones["Beauty"], phones["ooo"]
+    filler = (await j.until(lambda v: v["now"] is not None))["now"]
+    assert await j.send({"kind": "setPaused", "playId": filler["playId"], "paused": True}) == {"kind": "accepted"}
+
+    async def pick(title: str) -> dict[str, Any]:
+        found = await aget(f"{url}/api/search?q=fake")
+        song = next(s for s in found["online"]["songs"] if s["title"] == title)
+        choice = await aget(f"{url}/api/video-choice?key={song['onlineKey']}")
+        return {"kind": "queuePick", "pickId": choice["pickId"]}
+
+    async def library(title: str) -> dict[str, Any]:
+        hit = (await aget(f"{url}/api/search?q={urllib.parse.quote(title)}"))["library"][0]
+        return {"kind": "queueLibrary", "songId": hit["song"]["songId"]}
+
+    async def queue(*plan: tuple[Client, dict[str, Any]]) -> None:
+        for phone, cmd in plan:
+            assert await phone.send(cmd) == {"kind": "accepted"}
+
+    phone_of: dict[str, str] = {}
+
+    async def check(step: str, length: int | None = None) -> dict[str, Any]:
+        v = await j.until(lambda v: length is None or len(v["queue"]) == length)
+        phone_of.update({e["singerName"]: e["singerId"] for e in v["queue"]})
+        now = v["now"]["singerName"] or "filler"
+        log(f"{step:<58} now={now:<7} queue: {' '.join(e['singerName'] for e in v['queue'])}")
+        assert not back_to_back(v, phone_of), (step, back_to_back(v, phone_of))
+        return v
+
+    # Jacky queues a pile first, alone, as the host does before guests arrive.
+    await queue((j, await library("Morning Sun")), (j, await library("河流")), (j, await pick("Fake Song One")))
+    await check("Jacky queues 3 alone", 3)
+
+    # Everyone queues at the same moment, songs ready and still preparing, mixed.
+    burst = [(k, await pick("Second Fake Hit")), (k, await library("Night Drive")), (b, await library("河流")),
+             (o, await pick("Complicated Fake")), (ooo_tab, await library("Morning Sun")), (k, await library("河流")),
+             (b, await pick("Fake Song One"))]
+    await asyncio.gather(*(queue(x) for x in burst))
+    await check("K, Beauty, ooo + ooo's 2nd browser queue at once", 10)
+
+    # ooo renames to look like someone new and queues again. Still one phone.
+    assert await o.send({"kind": "rename", "name": "Not ooo"}) == {"kind": "accepted"}
+    await queue((o, await library("Night Drive")))
+    await check("ooo renames and queues again", 11)
+
+    # Songs play: skip the filler, then the TV ends songs one by one. Each start rebuilds the rotation.
+    assert await b.send({"kind": "skip", "playId": filler["playId"]}) == {"kind": "accepted"}
+    v = await check("filler skipped, first ready song plays", 10)
+    for n in range(3):
+        play = v["now"]["playId"]
+        assert await tv.send({"kind": "trackEnded", "playId": play}, envelope="tvCommand") == {"kind": "accepted"}
+        v = await j.until(lambda x: x["now"] is not None and x["now"]["playId"] != play)
+        v = await check(f"song {n + 1} ends")
+
+    # A late guest joins with three songs.
+    mei = await Client.open(url, "Mei", {"kind": "phoneHello", "browserId": "b-mei", "name": "Mei"})
+    size = len(v["queue"])
+    await queue((mei, await library("Morning Sun")), (mei, await library("河流")), (mei, await library("Night Drive")))
+    v = await check("Mei arrives late and queues 3", size + 3)
+
+    # K removes one song, Beauty moves her song to the front, then Jacky queues again.
+    mine = next(e for e in v["queue"] if e["singerName"] == "K")
+    assert await k.send({"kind": "remove", "entryId": mine["entryId"]}) == {"kind": "accepted"}
+    v = await check("K removes a song", size + 2)
+    beauty = next(e for e in v["queue"] if e["singerName"] == "Beauty")
+    assert await b.send({"kind": "move", "entryId": beauty["entryId"], "to": {"at": "front"}}) == {"kind": "accepted"}
+    v = await j.until(lambda x: x["queue"][0]["entryId"] == beauty["entryId"])
+    await queue((j, await library("Night Drive")))
+    v = await check("Beauty moves hers to the front, Jacky queues again", size + 3)
+    assert v["queue"][0]["entryId"] == beauty["entryId"], "a song moved to the front stays first"
+
+    # Play the rest of the night out.
+    while v["queue"]:
+        if v["now"]["isFiller"]:
+            v = await j.until(lambda x: any(e["readiness"]["kind"] == "ready" for e in x["queue"]), timeout=60)
+        play = v["now"]["playId"]
+        assert await tv.send({"kind": "trackEnded", "playId": play}, envelope="tvCommand") == {"kind": "accepted"}
+        v = await j.until(lambda x: x["now"] is not None and x["now"]["playId"] != play, timeout=30)
+        v = await check("song ends")
+    for c in (tv, *phones.values(), ooo_tab, mei):
+        await c.close()
+
+
+def test_five_phones_never_queue_one_singer_back_to_back(server: str) -> None:
+    asyncio.run(five_phone_party(server, say))
 
 
 async def mic_hog(url: str) -> None:

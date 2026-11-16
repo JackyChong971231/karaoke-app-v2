@@ -157,7 +157,7 @@ These implement the product spec's sections marked "added 2026-11-12".
 
 ### Identity: phone address for fairness, browser ID for favourites
 
-- The hub reads the phone's address from the WebSocket connection. The party's `SingerId` becomes `net:<address>`, and the laptop's own address (`127.0.0.1` or `::1`) becomes `net:laptop`. Fairness, join order, and "sung tonight" all key on it, so a private tab or a cleared browser on the same phone is the same singer.
+- The hub reads the phone's address from the WebSocket connection. The party's `SingerId` becomes `net:<address>`, and the laptop's own address (`127.0.0.1` or `::1`) becomes `net:laptop`. The turn rotation keys on it, so a private tab or a cleared browser on the same phone is the same singer.
 - The random ID the browser stores is renamed `browserId`. It keys favourites only.
 - `QueueEntry` gains `singer_name`, the name sent with the queue command. The queue shows it, so a rename does not change songs already queued. Now playing shows the playing entry's name.
 - Assumption: the home router keeps a phone's address for the whole night. Phones that randomise their Wi-Fi address do so per network, not per hour, so this holds.
@@ -371,7 +371,8 @@ Over all 75 library songs, the first version fixed the first line of 5 songs and
 
 ## Verification
 
-- Unit tests cover the fairness order, including both examples in the product spec and the user's 2026-11-12 example.
+- Unit tests cover the fairness order, including every example in the product spec, and a random-input test that no singer is ever queued back to back while another waits.
+- A server test runs a 5-phone party over WebSockets (simultaneous adds, ready and preparing songs, a late joiner, a rename, a second browser, a remove, a move, songs ending) and checks the queue after every step.
 - Unit tests show that a rename or a second browser ID from the same phone address stays one singer.
 - A project verification skill, made with `/pstack:create-verification-skill`, drives the TV page and a phone page in a real browser with Playwright. The prototype proved this works on the laptop with Microsoft Edge.
 

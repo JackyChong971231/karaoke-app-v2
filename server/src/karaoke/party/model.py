@@ -14,7 +14,7 @@ What is deliberately NOT here:
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import NewType
 
 from karaoke.core import SingerId, SongId, SongMeta
@@ -39,23 +39,9 @@ class QueueEntry:
     id: EntryId
     song: SongMeta
     singer: SingerId
-    round: int
-    """Fixed when the entry is added: sung tonight + already queued + 1. Never recomputed,
-    except once when a kept queue is renumbered at restart (see fairness.renumber_kept)."""
     singer_name: str
     """The name the singer had when they queued this song. A later rename does not change it, so a 咪霸 who
     renames between songs shows each song under the name used, while fairness counts by `singer` (the phone)."""
-
-
-@dataclass(frozen=True, slots=True)
-class Fairness:
-    """Resets on every start. DurableSnapshot has no field for it, so a restart cannot restore it."""
-
-    join_order: tuple[SingerId, ...] = ()
-    """A singer joins tonight with their first queued song (Assumption, see rationale open questions)."""
-    sung: Mapping[SingerId, int] = field(default_factory=dict)
-    """Songs started tonight per singer. Counted when a song STARTS, not when it ends,
-    so a singer's new song queued during their own song gets the right round."""
 
 
 # ---- what the TV should be doing -------------------------------------------------------
@@ -67,7 +53,7 @@ class FromQueue:
 
 @dataclass(frozen=True, slots=True)
 class Filler:
-    """Not a queue entry. Has no singer. Never touches Fairness."""
+    """Not a queue entry. Has no singer, so it never takes a turn in the rotation."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,7 +130,9 @@ class PartyState:
     phase: Phase
     queue: tuple[QueueEntry, ...]
     now: Now
-    fairness: Fairness
+    last_singer: SingerId | None
+    """Whose queued song started most recently. Fillers do not change it. They may not sing again next while
+    someone else has a song queued (the TV waits instead, see fairness.next_up). Not saved: a restart clears it."""
     singers: Mapping[SingerId, str]
     """Latest display name per singer, from Hello/Rename. A singer is a phone (its Wi-Fi address), not a name.
     Queue entries carry their own name; this map is the fallback and the record of who has said hello."""
@@ -163,8 +151,7 @@ class PartyState:
 class DurableSnapshot:
     """The only thing written to disk. Derived by `projections.durable(state)`.
 
-    No fairness fields on purpose: the spec resets counts and join order on restart,
-    and a type without the fields cannot accidentally restore them.
+    Turn order is not stored: it is rebuilt from the queue itself (fairness.rotated).
     """
 
     queue: tuple[SavedEntry, ...]

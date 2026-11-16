@@ -51,7 +51,7 @@ TV --clock (4 Hz telemetry)--> Hub --> phones        (never reduced)
 
 | State | Owner | Durable form |
 | --- | --- | --- |
-| Queue, fairness, now playing, restart prompt, settings | `party` reducer | `party.json`, written from `durable(state)`. It has no fairness field, so a restart cannot keep counts. |
+| Queue, fairness, now playing, restart prompt, settings | `party` reducer | `party.json`, written from `durable(state)`. Turn order is rebuilt from the queue, so nothing about it is saved. |
 | Preparation jobs and progress | `songs.prepare.Preparer` | The staging folder. A step is done when its output file exists. |
 | Song folders and search index | `songs.library.Library` | `<root>/<video id>/`. `index.sqlite` is derived and rebuilt from the folders. |
 | Search results and video candidates | `songs.catalog.Catalog` | Memory only. Phones send back a candidate ID, never metadata. |
@@ -62,8 +62,8 @@ TV --clock (4 Hz telemetry)--> Hub --> phones        (never reduced)
 
 - **Identity.** `PlayId` increases each time a song starts. Pause, skip, key, and track-ended carry it. A stale `PlayId` is rejected, so a double skip advances one song. Setters are absolute, never toggles.
 - **Singer.** A singer is a phone: `net:<Wi-Fi address>`, read by the hub from the connection. Any browser on the laptop is `net:laptop`. The browser's stored ID (`browserId`) keys favourites only. Each queue entry keeps the name it was queued with. The fake world reads a `karaoke-test-device` cookie instead of the address, because every test phone runs on one computer.
-- **Fairness.** `round = sung tonight + queued + 1`, fixed when the entry is added. A song counts as sung when it starts. A new entry goes right after the last entry with a smaller `(round, join index)`. Manual moves are never undone.
-- **Turn order.** Start the first ready entry in queue order. If none is ready, play a filler.
+- **Fairness.** v1's rotation (`fairness.rotated`, changed 2026-11-15). Whenever an entry joins the queue, leaves it, or starts playing, the queue is rebuilt: singers take turns in the order they first appear in it, one song each per turn, each singer's songs in their own order. The singer who sang last (`last_singer`) goes last, because they just had a turn. Nothing about earlier songs is stored. A manual move stands until the next rebuild. A song moved to the front stays first, because its singer then leads.
+- **Turn order.** `fairness.next_up`: walk singers in queue order; the first singer with any ready song sings their earliest ready song, skipping `last_singer` (who sang the last queued song) while anyone else has a song queued. If nobody may sing yet, play a filler.
 - **Filler.** A random library song not played in the last 20 fillers. When every library song is among them, the one played longest ago, so a small library rotates. A TV that fails to load a song waits 3 s before reporting it. It is `Playing(origin=Filler())`, not a queue entry. A newly ready queue song does not interrupt it.
 - **Restart.** A non-empty saved queue opens a keep-or-new prompt. The first answer wins. Keep renumbers rounds and join order from the kept order. Queue edits wait for the answer.
 - **TV.** The TV converges to the `TvView` it receives. It loads only when `PlayId` changes. After a reload it resumes at the last reported position for that `PlayId`. The audible clock is `inputTime - (stretch latency + baseLatency + outputLatency)` and holds the seek target until a fresh update arrives.
