@@ -338,9 +338,36 @@ The user picks test videos: some with long intros, some with speaking in the int
 
 The same videos are also measured with the current approach, so the two can be compared.
 
+## Install on a friend's laptop (added 2026-11-17)
+
+The user's words: package the app so a friend can install it on their laptop. It doesn't have to be an .exe, but it should be an installer the user can download from GitHub and install. It should run on every Windows laptop.
+
+- The friend downloads one installer file from the project's GitHub Releases page and runs it. They do not install Python, uv, Node, or anything else by hand.
+- The installer adds a "Karaoke" Start menu shortcut, and a desktop shortcut if they tick the box. The shortcut starts the app exactly as `Start Karaoke.cmd` does today: TV page on the second screen, control page on the laptop.
+- It runs on 64-bit Windows 10 and 11. With an NVIDIA graphics card, songs prepare as fast as on the user's laptop. Without one, they prepare on the processor and take several minutes each. Songs already prepared play the same on any laptop.
+- Assumption: the first start after installing downloads the heavy parts (Python, PyTorch, and the speech and vocal models), about 1 GB without an NVIDIA card and about 3 GB with one. The window shows progress, and it happens only once. GitHub limits each release file to 2 GB, so the heavy parts cannot ship inside the installer.
+- Assumption: the friend's library starts empty. Their songs are their own and stay on their laptop.
+- Assumption: Windows shows "Windows protected your PC" the first time, because the installer is not code-signed. The friend clicks "More info", then "Run anyway". Windows also asks once to allow the app through the firewall; the friend allows it so phones can connect.
+- Assumption: uninstalling from Windows Settings removes the app. The friend's songs in `%LOCALAPPDATA%\Karaoke` stay, so a reinstall keeps them.
+- ARM laptops (Snapdragon) and 32-bit Windows are not supported.
+
+### Upgrade to the latest release (added 2026-11-17)
+
+The user's words: when I commit, build another release, and push to GitHub, the app automatically checks for the latest release and prompts the user to press the upgrade button.
+
+- The user publishes a release by pushing a version tag, such as `v2.1.0`. GitHub builds the installer and publishes the release. The user does nothing else.
+- When the installed app starts, it checks GitHub for the latest release. It checks only at start, never while it runs (decided 2026-11-17).
+- When a newer release exists, the control page shows a bar: "Karaoke 2.1.0 is available" with an "Upgrade" button and a "What's new" link to the release notes.
+- Nothing upgrades until someone presses "Upgrade". Assumption: the bar can be dismissed, and it returns on the next start or for the next newer release.
+- Assumption: only the control page on the laptop shows the bar. Guests' phones never see it, since an upgrade restarts the app for everyone.
+- Pressing "Upgrade" asks once to confirm, because the app closes for about a minute. Then the app downloads the new installer, closes, installs it, and starts again by itself. Assumption: after the restart, the app offers to keep the queue, as it does after any restart. Prepared songs and settings are kept.
+- If GitHub cannot be reached, the app says nothing and works as usual. If the download or install fails, the app starts again on the old version and the bar says the upgrade failed.
+- Assumption: the user's own development copy, started with `Start Karaoke.cmd`, never checks for upgrades. It is updated with git.
+
 ## Open questions
+
 
 - **Advanced lyrics matching (2026-11-14):** which songs make up the test set? The agent can suggest candidates from the library, but the user knows which videos showed the problem.
 - **Advanced lyrics matching (2026-11-14):** how much longer may preparing a song take? Measured: a median of 13 s more per song with the graphics card (technical spec, "Measured results (2026-11-14)"). The user will judge it in use.
 
-Decided 2026-11-12: favourites follow the browser, with the restore offer above. Region boxes use YouTube Music's charts and playlists. Two friends sharing one phone count as one singer. Decided 2026-11-14: the lyrics sites, and that site lyrics are view only on the singer's device while the TV keeps LRCLIB.
+Decided 2026-11-12: favourites follow the browser, with the restore offer above. Region boxes use YouTube Music's charts and playlists. Two friends sharing one phone count as one singer. Decided 2026-11-17: the repository is public, so friends can download releases and the app can check for upgrades. Decided 2026-11-14: the lyrics sites, and that site lyrics are view only on the singer's device while the TV keeps LRCLIB.

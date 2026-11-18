@@ -20,6 +20,7 @@ import type {
   LyricsSitesResponse,
   SiteLyricsResponse,
   SearchResponse,
+  UpdateResponse,
   VideoChoiceResponse,
   WhoAmIResponse,
 } from "./types";
@@ -50,6 +51,10 @@ export const api = {
   place: (placeId: string, signal: AbortSignal) => request<PlaceResponse>(`/api/place/${q(placeId)}`, { signal }),
   /** Whether this browser is on the laptop running the app, which never asks for a name. */
   whoami: () => request<WhoAmIResponse>("/api/whoami"),
+  /** Control page: a newer release of the installed app, checked once when the app started. */
+  update: () => request<UpdateResponse>("/api/update"),
+  /** Laptop only: download the newer release; the app then closes, installs it, and starts again. */
+  upgrade: () => request<unknown>("/api/update/upgrade", { method: "POST" }),
   ready: (_key: string, signal: AbortSignal) => request<ReadyResponse>("/api/ready", { signal }),
   /** Control page: where a singer is from. Null returns them to the app's guess. */
   setArtistPlace: (artistId: string, name: string, placeId: PlaceId | null) =>

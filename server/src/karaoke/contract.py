@@ -523,6 +523,22 @@ class WhoAmIResponse(Wire):
     skips asking for a name there. A guest's own laptop is false: it names itself like a phone."""
 
 
+class UpdateOffer(Wire):
+    version: str
+    notes_url: str
+    """The release page on GitHub, for "What's new"."""
+
+
+class UpdateResponse(Wire):
+    """GET /api/update. Only the installed app checks; the developer's copy always answers with no offer."""
+    current: str
+    available: UpdateOffer | None
+    phase: Literal["idle", "downloading", "failed"]
+    """`failed`: the download behind the last Upgrade press failed. The app keeps running the current version."""
+    failed_version: str | None
+    """Set after a restart whose install failed: the version that could not be installed."""
+
+
 class ReadyResponse(Wire):
     songs: list[LibrarySongHit]
     """Every library song, newest first."""
@@ -699,6 +715,7 @@ class Contract(Wire):
     place: PlaceResponse
     ready: ReadyResponse
     whoami: WhoAmIResponse
+    update: UpdateResponse
     artist_place: ArtistPlaceRequest
     video_choice: VideoChoiceResponse
     favourites: FavouritesResponse

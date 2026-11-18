@@ -5,7 +5,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
   "starlette", "uvicorn[standard]", "pydantic>=2.8",
   "ytmusicapi==1.12.3",
-  "torch", "torchaudio", "demucs", "stable-ts", "opencc-python-reimplemented", "soundfile",
+  "demucs", "stable-ts", "opencc-python-reimplemented", "soundfile",
 ]
 
 [build-system]
@@ -15,13 +15,25 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/karaoke"]
 
+# PyTorch comes in two builds. `cu128` uses an NVIDIA graphics card and is the default here; `cpu` is what the
+# installed app picks on a laptop without one (see packaging/Karaoke.cmd). Exactly one of them is installed.
+[tool.uv]
+default-groups = ["dev", "cu128"]
+conflicts = [[{ group = "cpu" }, { group = "cu128" }]]
+constraint-dependencies = ["torch==2.11.0", "torchaudio==2.11.0"]
+
 [tool.uv.sources]
-torch = { index = "pytorch-cu128" }
-torchaudio = { index = "pytorch-cu128" }
+torch = [{ index = "pytorch-cpu", group = "cpu" }, { index = "pytorch-cu128", group = "cu128" }]
+torchaudio = [{ index = "pytorch-cpu", group = "cpu" }, { index = "pytorch-cu128", group = "cu128" }]
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
 url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [tool.pytest.ini_options]
@@ -33,6 +45,8 @@ karaoke = "karaoke.__main__:main"
 
 [dependency-groups]
 dev = ["pytest", "pytest-asyncio", "hypothesis", "mypy", "import-linter"]
+cu128 = ["torch", "torchaudio"]
+cpu = ["torch", "torchaudio"]
 
 # ---------------------------------------------------------------------------
 # Module boundaries, enforced by `lint-imports` in `just check`.

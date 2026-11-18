@@ -1,0 +1,71 @@
+# Pushing a tag like v2.1.0 builds the Windows installer and publishes it as a GitHub Release.
+# The installed app checks the latest release when it starts and offers the Upgrade button.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag must match server/pyproject.toml
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path server/pyproject.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          if ("v$version" -ne "${{ github.ref_name }}") {
+            throw "Tag ${{ github.ref_name }} does not match version $version in server/pyproject.toml"
+          }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.13.7"
+
+      # The web build generates its types from the server's contract, which needs the Python packages.
+      # The CPU build of PyTorch keeps this download small; UV_NO_SYNC stops `uv run` swapping in the default CUDA one.
+      - name: Python environment
+        working-directory: server
+        run: uv sync --frozen --no-default-groups --group cpu
+
+      - name: Build web pages
+        working-directory: web
+        env:
+          UV_NO_SYNC: "1"
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
+        run: ./packaging/build.ps1
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: packaging/out/Karaoke-Setup-*.exe
+          generate_release_notes: true
+          body: |
+            ## Install on a Windows laptop
+
+            1. Download the **Karaoke-Setup** `.exe` file under Assets below.
+            2. Run it. If Windows says "Windows protected your PC", click **More info**, then **Run anyway**.
+            3. Start **Karaoke** from the Start menu. The first start downloads 1 to 3 GB once, so leave it on the internet.
+            4. When Windows asks about the firewall, click **Allow**, so phones on the Wi-Fi can connect.
+
+            Already installed? The app shows an **Upgrade** button on the laptop's control page when it starts.
+
+            Needs 64-bit Windows 10 or 11. With an NVIDIA graphics card songs prepare in under a minute; without one they take a few minutes each.

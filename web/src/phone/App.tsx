@@ -9,6 +9,7 @@ import type { NowView } from "../wire/types";
 import { NowPlaying } from "./NowPlaying";
 import { Queue } from "./Queue";
 import { SearchPanel } from "./Search";
+import { UpdateBar } from "./UpdateBar";
 import {
   createPhoneStore,
   loadIdentity,
@@ -92,6 +93,7 @@ function Shell(props: { desk: boolean }): JSX.Element {
   return (
     <div className={`app ${desk ? "is-desk" : ""}`}>
       <TopBar onSettings={() => { setSettingsOpen(true); }} />
+      {desk && <UpdateBar />}
       {link === "connecting" && view !== null && (
         <div className="banner" data-testid="reconnecting">
           <Spinner size={14} /> Reconnecting…

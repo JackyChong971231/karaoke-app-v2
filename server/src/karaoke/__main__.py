@@ -1,6 +1,7 @@
 """Boot. The only module that knows every concrete class.
 
     uv run karaoke serve [--world real|fake] [--port 8080] [--library DIR] [--data DIR] [--v1 DIR]
+                         [--installed [--upgrade-failed VERSION]]
     uv run karaoke replay <journal.jsonl>
 
 The real world keeps its state in %LOCALAPPDATA%\\Karaoke (party.json, journals, import plan) and the library
@@ -37,6 +38,7 @@ from karaoke.shell.lifetime import tie_children_to_this_process
 from karaoke.shell.screens import open_pages
 from karaoke.songs.thumbs import Thumbs, no_fetch, youtube_picture
 from karaoke.shell.store import Store
+from karaoke.shell.updates import UPGRADE_EXIT, Updates
 from karaoke.songs.browse import ArtistPlaces, Browse
 from karaoke.songs.catalog import Catalog, YouTubeMusic, YTMusicPort
 from karaoke.songs.favourites import Favourites
@@ -61,7 +63,8 @@ def lan_ip() -> str:
     return "127.0.0.1"
 
 
-async def serve(args: argparse.Namespace) -> None:
+async def serve(args: argparse.Namespace) -> bool:
+    """Runs the party until the server stops. True when it stopped to install an upgrade."""
     fake = args.world == "fake"
     data: Path = args.data or (Path(tempfile.mkdtemp(prefix="karaoke-fake-")) if fake else default_data_dir())
     library_dir: Path = args.library or data / "library"
@@ -113,7 +116,8 @@ async def serve(args: argparse.Namespace) -> None:
     places = ArtistPlaces(data / "artist-places.json")
     places.load()
     browse = Browse(catalog, library, yt, places)
-    services = Services(hub=hub, library=library, catalog=catalog, preparer=preparer, importer=importer,
+    updates = Updates(data / "updates", enabled=args.installed and not fake, failed_version=args.upgrade_failed)
+    services = Services(updates=updates, hub=hub, library=library, catalog=catalog, preparer=preparer, importer=importer,
                         web_dist=args.web_dist, browse=browse,
                         thumbs=Thumbs(library, no_fetch if fake else youtube_picture),
                         site_lyrics=SiteLyrics(library, lyric_sites))
@@ -125,7 +129,7 @@ async def serve(args: argparse.Namespace) -> None:
 
     server = uvicorn.Server(uvicorn.Config(app, host=args.host, port=args.port, log_level="warning",
                                            ws_ping_interval=10, ws_ping_timeout=10))
-    print(f"Karaoke ({args.world} world)")
+    print(f"Karaoke {updates.current} ({args.world} world)")
     print(f"  Phones: {join_url}")
     print(f"  TV:     http://localhost:{args.port}/tv")
     print(f"  Control: http://localhost:{args.port}/control")
@@ -139,7 +143,18 @@ async def serve(args: argparse.Namespace) -> None:
 
     tie_children_to_this_process()  # before any child starts: windows and preparation end with the app
     tasks = [asyncio.create_task(loop.run(), name="party-loop"),
-             asyncio.create_task(preparer.run(), name="preparer")]
+             asyncio.create_task(preparer.run(), name="preparer"),
+             asyncio.create_task(updates.check(), name="update-check")]
+    upgrading = False
+
+    async def stop_for_upgrade() -> None:
+        nonlocal upgrading
+        await updates.ready_to_install.wait()
+        print("Closing to install the upgrade...")
+        upgrading = True
+        server.should_exit = True
+
+    tasks.append(asyncio.create_task(stop_for_upgrade(), name="upgrade-exit"))
     if args.open_tv if args.open_tv is not None else not fake:
         asyncio.get_running_loop().call_later(1.0, open_pages, args.port, data)
     try:
@@ -149,6 +164,7 @@ async def serve(args: argparse.Namespace) -> None:
             t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         journal.close()
+    return upgrading
 
 
 def main() -> None:
@@ -164,6 +180,9 @@ def main() -> None:
     s.add_argument("--web-dist", type=Path, default=WEB_DIST)
     s.add_argument("--fake-delay", type=float, default=1.0, help="seconds per fake preparation stage")
     s.add_argument("--open-tv", dest="open_tv", action="store_true", default=None)
+    s.add_argument("--installed", action="store_true",
+                   help="the installed app (packaging/Karaoke.cmd): check GitHub for a newer release at start")
+    s.add_argument("--upgrade-failed", metavar="VERSION", help="the last upgrade, to VERSION, failed to install")
     s.add_argument("--no-open-tv", dest="open_tv", action="store_false",
                    help="do not open the TV and control windows")
     r = sub.add_parser("replay", help="re-run a journal through the reducer")
@@ -177,8 +196,11 @@ def main() -> None:
         final = replay(args.journal, initial_state(None), verbose=True)
         print(f"final queue: {[e.song.title for e in final.queue]}  now: {final.now}")
         return
+    upgrading = False
     with contextlib.suppress(KeyboardInterrupt):
-        asyncio.run(serve(args))
+        upgrading = asyncio.run(serve(args))
+    if upgrading:
+        sys.exit(UPGRADE_EXIT)
 
 
 if __name__ == "__main__":

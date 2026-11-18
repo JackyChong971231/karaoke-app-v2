@@ -6,6 +6,8 @@
     GET  /api/artist/{artist_id}    -> contract.ArtistResponse          (Catalog.artist, plus the singer's place)
     GET  /api/browse                -> contract.BrowseResponse          (the place boxes)
     GET  /api/place/{place_id}      -> contract.PlaceResponse           (Browse.page: 熱門 shelves, library, singers)
+    GET  /api/update                -> contract.UpdateResponse          (shell.updates: a newer release, if any)
+    POST /api/update/upgrade        -> laptop only: download the installer, then the app exits to install it
     GET  /api/ready                 -> contract.ReadyResponse           (every library song, newest first)
     POST /api/artist-place          -> contract.ArtistPlaceRequest      (control page: where a singer is from)
     GET  /api/video-choice?key=     -> contract.VideoChoiceResponse     (Catalog.resolve_video; import page)
@@ -46,6 +48,7 @@ from karaoke import contract as c
 from karaoke.core import ArtistId, ArtistRef, SongId, SongMeta
 from karaoke.importer import ImportService, PlanItem
 from karaoke.shell.hub import Hub
+from karaoke.shell.updates import Updates
 from karaoke.shell.views import LAPTOP, board_readiness, song_view
 from karaoke.songs.browse import PLACE_BY_ID, PLACES, Browse
 from karaoke.songs.catalog import (
@@ -77,6 +80,7 @@ class Services:
     browse: Browse | None = None
     thumbs: Thumbs | None = None
     site_lyrics: SiteLyrics | None = None
+    updates: Updates | None = None
     background: set[asyncio.Task[None]] = field(default_factory=set)
 
 
@@ -118,6 +122,31 @@ def routes(s: Services) -> list[BaseRoute]:
 
     async def whoami(request: Request) -> Response:
         return _json(c.WhoAmIResponse(is_laptop=s.hub.device_of(request) == LAPTOP))
+
+    async def update(request: Request) -> Response:
+        u = s.updates
+        if u is None:
+            return _json(c.UpdateResponse(current="", available=None, phase="idle", failed_version=None))
+        offer = None if u.available is None else c.UpdateOffer(version=u.available.version,
+                                                               notes_url=u.available.notes_url)
+        return _json(c.UpdateResponse(current=u.current, available=offer, phase=u.phase,
+                                      failed_version=u.failed_version))
+
+    async def upgrade(request: Request) -> Response:
+        """Laptop only: an upgrade restarts the app for everyone, so guests' phones cannot start one."""
+        if s.updates is None or s.hub.device_of(request) != LAPTOP:
+            return PlainTextResponse("only the laptop running the app can upgrade it", status_code=403)
+        if s.updates.available is None or s.updates.phase == "downloading":
+            return PlainTextResponse("no upgrade to start", status_code=409)
+        updates = s.updates
+
+        async def run() -> None:
+            await updates.upgrade()
+
+        task = asyncio.create_task(run())
+        s.background.add(task)
+        task.add_done_callback(_finish_background(s.background))
+        return Response(status_code=202)
 
     async def ready(request: Request) -> Response:
         hits = tuple(LibraryHit(r.meta, r.lyrics_source == "transcribed") for r in lib.newest())
@@ -305,6 +334,8 @@ def routes(s: Services) -> list[BaseRoute]:
         Route("/api/place/{place_id}", place),
         Route("/api/ready", ready),
         Route("/api/whoami", whoami),
+        Route("/api/update", update),
+        Route("/api/update/upgrade", upgrade, methods=["POST"]),
         Route("/api/artist-place", artist_place, methods=["POST"]),
         Route("/api/video-choice", video_choice),
         Route("/api/video-options", video_options),

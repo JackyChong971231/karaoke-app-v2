@@ -369,6 +369,61 @@ Over all 75 library songs, the first version fixed the first line of 5 songs and
 - Search: pressing the Search tab remounts the search panel, which clears the query and the page stack.
 - `Settings.advanced_lyrics` now defaults to `true`. A saved `party.json` keeps its saved value.
 
+## Changes for 2026-11-17: Windows installer
+
+A small installer carries the tools and the app. `uv` builds the Python environment on the friend's laptop on first start. This keeps the installer far under GitHub's 2 GB limit per release file, and `uv.lock` still pins every version.
+
+### What the installer contains
+
+About 150 MB, built with Inno Setup into `Karaoke-Setup-<version>.exe`, and installed per user in `%LOCALAPPDATA%\Programs\Karaoke`, so it needs no administrator rights.
+
+| Part | Why |
+| --- | --- |
+| `uv.exe` | Installs Python 3.12 and the locked packages, and keeps `yt-dlp` updated as today. |
+| `ffmpeg.exe`, `ffprobe.exe` | Called by preparation and thumbnails. They are on the user's laptop today but not on a friend's. |
+| `deno.exe` | Needed by `yt-dlp` for YouTube. |
+| `server/` source with `pyproject.toml` and `uv.lock` | The app. |
+| `web/dist` | The built pages, so the friend needs no Node. |
+| `Karaoke.cmd` | The launcher. |
+
+### First start
+
+1. The launcher puts the installed tools first on `PATH` and sets `UV_PYTHON_INSTALL_DIR` and `UV_PROJECT_ENVIRONMENT` under `%LOCALAPPDATA%\Karaoke\runtime`, so nothing lands in the install folder or a cloud-synced folder.
+2. It checks for an NVIDIA card with `nvidia-smi -L`. If one is found, it runs `uv sync --frozen --no-default-groups --group cu128`, otherwise `--group cpu`. `pyproject.toml` has two conflicting dependency groups that take `torch` and `torchaudio` 2.11.0 from the CUDA 12.8 index or the CPU index. `cu128` is a default group, so the developer's `uv run` on the user's laptop is unchanged. Setting `KARAOKE_TORCH=cpu` forces the CPU build, for testing.
+3. It runs `uv tool install "yt-dlp[default]"` if `yt-dlp` is missing, with the tool folders under `runtime` too.
+4. It starts `karaoke serve --installed` from the environment directly, so no tool in the install folder is running while the app runs. The Whisper and Demucs models download on first use, as they do today.
+
+Later starts skip steps 2 and 3 when the environment matches the lock, which `uv sync` checks in about a second.
+
+Assumption: the friend's laptop has Microsoft Edge, which every Windows 10 and 11 laptop has. Without Edge the app already prints the two addresses to open by hand.
+
+### Release
+
+- A GitHub Actions workflow on `windows-latest`, started by pushing a tag such as `v2.1.0`: build `web/dist`, download pinned versions of `uv`, `ffmpeg`, and `deno`, run Inno Setup, and attach the installer to a GitHub Release for that tag.
+- `Start Karaoke.cmd` stays for the user's own development copy.
+- The version lives in one place, `version` in `server/pyproject.toml`. The workflow fails when the tag does not match it, so a release can never report the wrong version.
+- To release: bump `version`, commit, `git tag v2.1.0`, `git push --follow-tags`.
+
+### Upgrade
+
+- A new `updates` module in `shell` owns the check. The installed launcher passes `--installed`, and only then is the module on. It reads `GET https://api.github.com/repos/<owner>/karaoke-app-v2/releases/latest` with no login, once at start. That is far under GitHub's limit of 60 requests an hour without a login. The request carries only a generic `User-Agent`. Drafts and pre-releases are skipped, because `releases/latest` never returns them.
+- It compares the release tag with the running version as version numbers, not as text. A newer release with an asset named `Karaoke-Setup-<version>.exe` is offered by `GET /api/update` (`contract.UpdateResponse`). Only the control page asks for it and shows the bar.
+- `POST /api/update/upgrade` answers only the laptop running the app. The server downloads the asset to `%LOCALAPPDATA%\Karaoke\updates`, checks its size against the release's asset size, writes the installer's path and version to `pending.txt`, and exits with code 75. Exiting closes the TV and control windows as today. The party is already saved on every change.
+- The app cannot start the install itself: everything it starts is killed with it (see `shell/lifetime.py`). `Karaoke.cmd` is outside that, so on exit code 75 it starts `upgrade.ps1` from a copy in `%TEMP%` and closes. That step waits for the old app to let go of the install folder, runs the installer with `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL`, then runs `Karaoke.cmd` again.
+- The installer is per user, so the silent install needs no administrator prompt. Inno Setup replaces the install folder and keeps `%LOCALAPPDATA%\Karaoke`. On the next start, `uv sync --frozen` installs only the packages whose locked versions changed. Uninstalling removes `runtime` and `updates` but keeps songs, settings, and favourites.
+- When the installer exits with an error, the PowerShell step still starts `Karaoke.cmd`, with `--upgrade-failed <version>` so the control page can say so.
+- Assumption: the installer is not signed, so the app trusts it by downloading only from the repository's own release over HTTPS. Signing is a separate decision if friends outside the user's circle install it.
+
+### Proof of the upgrade
+
+- Publish `v2.0.1` and `v2.0.2` as test releases. Install `v2.0.1` in Windows Sandbox, see the bar, press Upgrade, and see the app come back as `2.0.2` with the library and settings kept.
+- A unit test covers the version comparison, including `2.10.0` being newer than `2.9.0`.
+
+### Proof
+
+- A clean Windows VM or Windows Sandbox with no Python, uv, Node, or ffmpeg installs from the release file, starts the app, and prepares one song on the CPU path.
+- The user's laptop installs the same file and prepares one song on the CUDA path.
+
 ## Verification
 
 - Unit tests cover the fairness order, including every example in the product spec, and a random-input test that no singer is ever queued back to back while another waits.
