@@ -379,7 +379,8 @@ About 150 MB, built with Inno Setup into `Karaoke-Setup-<version>.exe`, and inst
 
 | Part | Why |
 | --- | --- |
-| `uv.exe` | Installs Python 3.12 and the locked packages, and keeps `yt-dlp` updated as today. |
+| `uv.exe` | Installs the locked packages, and keeps `yt-dlp` updated as today. |
+| `python\` (CPython 3.12.16) | The app's Python. Bundled since 2.0.1: `uv python install` makes a folder link that some laptops refuse ("untrusted mount point", os error 448), so the launcher sets `UV_PYTHON` to this copy and `UV_PYTHON_DOWNLOADS=never`. |
 | `ffmpeg.exe`, `ffprobe.exe` | Called by preparation and thumbnails. They are on the user's laptop today but not on a friend's. |
 | `deno.exe` | Needed by `yt-dlp` for YouTube. |
 | `server/` source with `pyproject.toml` and `uv.lock` | The app. |
@@ -388,7 +389,7 @@ About 150 MB, built with Inno Setup into `Karaoke-Setup-<version>.exe`, and inst
 
 ### First start
 
-1. The launcher puts the installed tools first on `PATH` and sets `UV_PYTHON_INSTALL_DIR` and `UV_PROJECT_ENVIRONMENT` under `%LOCALAPPDATA%\Karaoke\runtime`, so nothing lands in the install folder or a cloud-synced folder.
+1. The launcher puts the installed tools first on `PATH`, points uv at the bundled Python, and sets `UV_PROJECT_ENVIRONMENT` under `%LOCALAPPDATA%\Karaoke\runtime`, so nothing lands in the install folder or a cloud-synced folder.
 2. It checks for an NVIDIA card with `nvidia-smi -L`. If one is found, it runs `uv sync --frozen --no-default-groups --group cu128`, otherwise `--group cpu`. `pyproject.toml` has two conflicting dependency groups that take `torch` and `torchaudio` 2.11.0 from the CUDA 12.8 index or the CPU index. `cu128` is a default group, so the developer's `uv run` on the user's laptop is unchanged. Setting `KARAOKE_TORCH=cpu` forces the CPU build, for testing.
 3. It runs `uv tool install "yt-dlp[default]"` if `yt-dlp` is missing, with the tool folders under `runtime` too.
 4. It starts `karaoke serve --installed` from the environment directly, so no tool in the install folder is running while the app runs. The Whisper and Demucs models download on first use, as they do today.

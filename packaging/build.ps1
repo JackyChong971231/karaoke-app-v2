@@ -10,6 +10,7 @@ $root = Split-Path $here -Parent
 
 # Pinned tools. Bump deliberately and test.
 $UvVersion = '0.13.7'
+$PythonVersion = '3.12.16'
 $DenoVersion = '2.9.8'
 $FfmpegVersion = '8.0'
 
@@ -37,6 +38,17 @@ function Get-Zip([string] $url, [string] $name) {
 
 $uv = Get-Zip "https://github.com/astral-sh/uv/releases/download/$UvVersion/uv-x86_64-pc-windows-msvc.zip" "uv-$UvVersion.zip"
 Copy-Item "$uv\uv.exe", "$uv\uvx.exe" "$stage\bin"
+
+# Python ships inside the installer, so the friend's laptop never runs `uv python install`, whose folder link
+# some laptops refuse (os error 448). Only the real version folder is copied, not uv's link to it.
+$py = Join-Path $cache "python-$PythonVersion"
+$pyDir = Join-Path $py "cpython-$PythonVersion-windows-x86_64-none"
+if (-not (Test-Path "$pyDir\python.exe")) {
+    & "$uv\uv.exe" python install $PythonVersion --install-dir $py --no-bin --no-registry
+    if ($LASTEXITCODE -ne 0) { throw "uv python install failed with exit code $LASTEXITCODE" }
+}
+Copy-Item $pyDir "$stage\python" -Recurse
+Get-ChildItem "$stage\python" -Recurse -Directory -Filter '__pycache__' | Remove-Item -Recurse -Force
 $deno = Get-Zip "https://github.com/denoland/deno/releases/download/v$DenoVersion/deno-x86_64-pc-windows-msvc.zip" "deno-$DenoVersion.zip"
 Copy-Item "$deno\deno.exe" "$stage\bin"
 $ff = Get-Zip "https://github.com/GyanD/codexffmpeg/releases/download/$FfmpegVersion/ffmpeg-$FfmpegVersion-essentials_build.zip" "ffmpeg-$FfmpegVersion.zip"
