@@ -403,7 +403,7 @@ Assumption: the friend's laptop has Microsoft Edge, which every Windows 10 and 1
 - A GitHub Actions workflow on `windows-latest`, started by pushing a tag such as `v2.1.0`: build `web/dist`, download pinned versions of `uv`, `ffmpeg`, and `deno`, run Inno Setup, and attach the installer to a GitHub Release for that tag.
 - `Start Karaoke.cmd` stays for the user's own development copy.
 - The version lives in one place, `version` in `server/pyproject.toml`. The workflow fails when the tag does not match it, so a release can never report the wrong version.
-- To release: bump `version`, commit, `git tag v2.1.0`, `git push --follow-tags`.
+- To release: bump `version`, commit, `git tag v2.1.0`, push the branch, then `git push github v2.1.0`. (`--follow-tags` skips plain tags.)
 
 ### Upgrade
 

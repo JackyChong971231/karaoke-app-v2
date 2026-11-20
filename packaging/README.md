@@ -7,8 +7,11 @@
 
    ```
    git tag v2.1.0
-   git push github build/app --follow-tags
+   git push github build/app
+   git push github v2.1.0
    ```
+
+   Push the tag by name. `--follow-tags` skips tags made with a plain `git tag`.
 
 GitHub Actions (`.github/workflows/release.yml`) builds `Karaoke-Setup-2.1.0.exe` and publishes it as a release. It takes about 10 minutes; watch it in the repository's Actions tab. The build fails when the tag does not match `version`.
 
