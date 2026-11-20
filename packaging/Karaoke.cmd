@@ -1,4 +1,10 @@
 @echo off
+rem The installer is 32-bit, so its "Start Karaoke now" opens a 32-bit cmd, where Windows hides System32 and
+rem nvidia-smi with it: the first start would pick the CPU build on an NVIDIA machine. Rerun in 64-bit cmd.
+if defined PROCESSOR_ARCHITEW6432 (
+  "%SystemRoot%\Sysnative\cmd.exe" /c ""%~f0" %*"
+  exit /b
+)
 rem The installed app's launcher (the Start menu shortcut runs this). The developer's copy uses Start Karaoke.cmd.
 rem First start: installs the locked packages, on the Python bundled in python\, into %LOCALAPPDATA%\Karaoke\runtime (1-3 GB, once).
 rem When the app exits to upgrade, this runs the downloaded installer through upgrade.ps1 and the new version starts.
